@@ -1,0 +1,38 @@
+{% extends 'base.html' %}
+{% block content %}
+<div class="page-heading heading-row">
+  <div><div class="eyebrow">协商前的独立答案</div><h1>分歧与疑点清单</h1><p>{{ round.name }} · 系统只比较标签和标记，不代替你解释分歧原因。</p></div>
+  <a class="button secondary" href="{% url 'workbench' round.id %}">返回工作台</a>
+</div>
+{% if round.kind == 'training' %}<div class="notice">培训清单可能包含尚未提交的草稿，仅用于共同学习，不是独立编码信度结果。</div>{% endif %}
+{% if round.cycle > 1 %}<div class="notice danger">本轮公开答案后重新开放，不能再作为新的盲法独立评估；旧结论不会算作当前轮次定稿。</div>{% endif %}
+<section class="card">
+  <div class="button-row queue-filters">
+    <a class="button {% if mode != 'attention' %}secondary{% endif %}" href="?filter=attention">分歧或疑点 {{ counts.attention }}</a>
+    <a class="button {% if mode != 'undecided' %}secondary{% endif %}" href="?filter=undecided">尚未定稿 {{ counts.undecided }}</a>
+    <a class="button {% if mode != 'all' %}secondary{% endif %}" href="?filter=all">全部单元 {{ counts.all }}</a>
+    <a class="button secondary" href="{% url 'export_round' round.id 'disagreements' %}">导出分歧CSV</a>
+  </div>
+  <p class="hint">“主次代码互换”即使标签集合相同也会列出。“单人编码”没有可比较对象，不代表已达成一致。每个单元仍需单独保存最终结论。</p>
+  <div class="table-wrap"><table>
+    <thead><tr><th>单元 / 来源</th><th>原文</th><th>发现的差异</th><th>定稿状态</th><th>操作</th></tr></thead>
+    <tbody>
+    {% for row in page %}
+      <tr>
+        <td>#{{ row.unit.id }}<small class="block muted">{{ row.unit.record.document.name }} / {{ row.unit.record.position }}</small></td>
+        <td class="preserve">{{ row.unit.text|truncatechars:180 }}</td>
+        <td>{% for name in row.type_names %}<span class="block">{{ name }}</span>{% empty %}<span class="muted">{% if row.single_coder %}单人编码，无法比较{% else %}标签一致{% endif %}</span>{% endfor %}</td>
+        <td>{% if row.resolved %}<span class="badge green">已定稿</span>{% elif row.decision %}<span class="badge amber">结论待裁定</span>{% else %}<span class="badge">尚未定稿</span>{% endif %}</td>
+        <td><a href="{% url 'review' round.id %}?unit={{ row.unit.id }}">查看与协商 →</a></td>
+      </tr>
+    {% empty %}<tr><td colspan="5" class="empty-cell">当前筛选没有样本。可以切换“全部单元”查看。</td></tr>{% endfor %}
+    </tbody>
+  </table></div>
+</section>
+<div class="pagination">
+  {% if page.has_previous %}<a href="?filter={{ mode }}&page={{ page.previous_page_number }}">← 上一页</a>{% endif %}
+  <span>{{ page.number }} / {{ page.paginator.num_pages }}</span>
+  {% if page.has_next %}<a href="?filter={{ mode }}&page={{ page.next_page_number }}">下一页 →</a>{% endif %}
+</div>
+<section class="card"><h2>接下来做什么</h2><p>读原文和上下文，对照代码定义，记录分歧属于定义重叠、切分问题、上下文不足还是其他原因。协商结论不会覆盖个人独立答案。</p><p>需要再次试编码时，可复制编码本为新版本，并在“安排编码任务”中指定本清单的单元编号及新样本编号。已拆分的旧编号不能直接重新分配。</p></section>
+{% endblock %}

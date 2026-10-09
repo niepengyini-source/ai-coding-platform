@@ -1,0 +1,5 @@
+{% if submitted_tasks %}{% if role == 'owner' or role == 'reviewer' %}
+<details class="card compact"><summary>退回误提交的个人任务（不显示答案）</summary><p class="hint">只退回状态，编码内容仍由原编码员修改；公开协商后不使用此操作。</p>
+<div class="table-wrap"><table><thead><tr><th>编码员</th><th>单元</th><th>退回操作</th></tr></thead><tbody>
+{% for task in submitted_tasks %}<tr><td>{{ task.coder__username }}</td><td>#{{ task.unit_id }}</td><td><form action="{% url 'assignment_reopen' task.id %}" method="post" class="return-task-form">{% csrf_token %}<input type="hidden" name="revision" value="{{ task.revision }}"><input name="reason" required maxlength="2000" placeholder="说明退回理由" aria-label="退回任务{{ task.id }}的理由"><button class="button secondary" type="submit">退回修改</button></form></td></tr>{% endfor %}
+</tbody></table></div><p class="hint">一次显示最多50个已提交任务。</p></details>{% endif %}{% endif %}

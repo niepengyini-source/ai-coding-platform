@@ -1,0 +1,10 @@
+{
+  "version": "0.2.0",
+  "configurations": [
+    {"name": "AI辅助编码平台：开发调试", "type": "debugpy", "request": "launch",
+     "program": "${workspaceFolder}/server.py", "args": ["--host", "127.0.0.1", "--port", "8000"],
+     "django": true, "justMyCode": true, "env": {"PLATFORM_DEBUG": "1", "DJANGO_SETTINGS_MODULE": "config.settings"}},
+    {"name": "运行Django测试", "type": "debugpy", "request": "launch",
+     "program": "${workspaceFolder}/manage.py", "args": ["test", "coding"], "justMyCode": true}
+  ]
+}

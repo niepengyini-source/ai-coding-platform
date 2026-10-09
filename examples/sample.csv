@@ -1,0 +1,7 @@
+record_id,interview_id,speaker,text
+1,interview_A,访谈者,你们开始处理材料时是怎么安排的？
+2,interview_A,参与者甲,我们先列出要完成的事项，再分配每个人负责的部分。
+3,interview_A,参与者乙,进行到一半发现时间不够，就重新调整了顺序。
+4,interview_B,访谈者,完成之后你们如何检查？
+5,interview_B,参与者丙,我们对照原来的目标检查结果，发现有两处需要补充。
+6,interview_B,参与者丁,这个词的意思我不太确定，想再看看前后的说法。

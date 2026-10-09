@@ -1,0 +1,8 @@
+<form class="annotation-form" data-endpoint="{{ endpoint }}" data-mode="{{ mode }}" data-locked="{{ locked|yesno:'true,false' }}">
+{% csrf_token %}<label for="primary">主代码{% if round.book.policy == 'single' %}（单标签）{% endif %}</label><select id="primary" name="primary"><option value="">请选择，或标记无代码 / 不确定</option>{% for c in codes %}<option value="{{ c.id }}">{{ c.key }} · {{ c.name }}</option>{% endfor %}</select>
+{% if round.book.policy == 'multi' %}<fieldset class="secondary-codes"><legend>次代码（可选，可多选）</legend>{% for c in codes %}<label class="check-option"><input type="checkbox" name="secondary" value="{{ c.id }}"><span>{{ c.key }} · {{ c.name }}</span></label>{% endfor %}</fieldset>{% endif %}
+<label class="check-line"><input type="checkbox" name="no_code">明确没有适用代码</label><label class="check-line"><input type="checkbox" name="uncertain">不确定 / 需要讨论</label>
+<label for="coder-note">{% if mode == 'decision' %}协商依据（必填）{% else %}编码备注 / 不确定的原因{% endif %}</label><textarea id="coder-note" name="note" rows="4" maxlength="5000" placeholder="支持中文或英文；写下判断依据或疑点"></textarea>
+<div class="save-status" role="status" aria-live="polite">{% if locked %}已锁定，只读查看{% else %}等待编辑{% endif %}</div>
+{% if not locked %}<div class="button-row"><button class="button" type="submit" data-action="save">{% if mode == 'decision' %}保存协商结论{% else %}保存草稿{% endif %}</button>{% if mode != 'decision' %}<button class="button secondary" type="submit" data-action="submit">提交并锁定</button>{% endif %}</div><p class="hint">{% if mode == 'decision' %}保存时检查版本，避免覆盖其他人的结论。{% else %}草稿编辑后自动保存；提交后不能直接修改。Ctrl＋Enter保存。{% endif %}</p>{% endif %}
+</form>

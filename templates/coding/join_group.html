@@ -1,0 +1,4 @@
+{% extends 'base.html' %}{% block title %}加入小组 · AI辅助编码平台{% endblock %}{% block content %}
+<div class="page-heading"><div class="eyebrow">与同伴一起工作</div><h1>加入项目小组</h1><p>一个编码项目就是一个小组。你可以加入多个项目，每个项目的资料和权限相互独立。</p></div>
+<section class="card narrow"><h2>输入负责人提供的邀请码</h2><form method="post">{% csrf_token %}{{ form.as_p }}<div class="button-row"><button class="button" type="submit">提交加入申请</button><a class="button secondary" href="{% url 'home' %}">返回我的项目</a></div></form>
+<p class="hint">提交后，在“我的项目”查看申请状态。负责人审核通过后，项目会出现在你的列表里；编码任务需要负责人另外安排。平台不公开列出其他小组及其材料。</p></section>{% endblock %}

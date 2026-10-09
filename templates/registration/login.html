@@ -1,0 +1,4 @@
+{% extends 'base.html' %}{% block title %}登录 · AI辅助编码平台{% endblock %}{% block content %}
+<div class="login-layout"><section><div class="eyebrow">让判断有依据，让协作可追溯</div><h1 class="hero-title">把材料、规则和判断<br>放在同一个工作台。</h1><p class="lead">无需AI，也能完成编码。独立判断、共同协商，保留每一步的研究记录。</p><div class="feature-row"><span>✓ 独立答案隔离</span><span>✓ 规则版本留存</span><span>✓ 可追溯导出</span></div></section>
+<section class="card login-card"><h2>登录工作空间</h2><p class="muted">登录自己的账号，与小组一起完成编码。</p><form method="post">{% csrf_token %}{{ form.as_p }}{% if next %}<input type="hidden" name="next" value="{{ next }}">{% endif %}<button class="button full" type="submit">登录平台 →</button></form>{% if registration_open %}<div class="auth-switch">第一次使用？<a href="{% url 'register' %}">创建自己的账号 →</a></div><p class="hint">注册后输入负责人提供的邀请码申请加入项目小组。通过审核前，不能查看小组材料。</p>{% else %}<p class="hint">此后台已关闭自行注册，请联系项目负责人添加账号。</p>{% endif %}</section></div>
+{% endblock %}

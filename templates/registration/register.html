@@ -1,0 +1,7 @@
+{% extends 'base.html' %}{% block title %}注册 · AI辅助编码平台{% endblock %}{% block content %}
+<div class="auth-page"><div class="page-heading"><div class="eyebrow">从自己的账号开始</div><h1>创建账号</h1><p>一人一个账号，分别保存每个人的编码判断。</p></div>
+<section class="card">{% if registration_open %}<p class="muted">不需要负责人替你设置密码，也不需要填写邮箱或手机号。</p>
+<form method="post">{% csrf_token %}{{ form.as_p }}<button class="button full" type="submit">创建账号并进入平台 →</button></form>
+<p class="hint">注册不会自动加入任何小组。进入平台后，可以输入邀请码申请加入小组，或创建自己的编码项目。请使用与其他网站不同的密码。</p>
+{% else %}<div class="notice">此后台暂不允许自行注册，请联系项目负责人添加账号。</div>{% endif %}
+<div class="auth-switch">已经有账号？<a href="{% url 'login' %}">返回登录</a></div></section></div>{% endblock %}

@@ -1,0 +1,26 @@
+{% extends 'base.html' %}{% load metrics %}{% block content %}<div class="page-heading heading-row"><div><h1>独立编码一致性</h1><p>{{ round.name }} · 编码本v{{ round.book.version }} · 使用协商前的独立答案，不使用最终结论。</p></div><form method="post">{% csrf_token %}<button class="button" type="submit">计算并保存报告快照</button></form></div>
+{% if report %}
+{% if data.training or data.reopened_not_blind %}<div class="notice danger">这是培训或已公开答案后重开的结果，不能当作新的盲法独立信度。</div>{% endif %}
+{% if data.previously_visible_unit_count %}<div class="notice danger">本轮有 {{ data.previously_visible_unit_count }} 个单元曾用于培训或已公开协商，应作为复测样本解释。当前隐藏他人答案不能抹掉先前记忆；不要把包含这些单元的整体指标称为全新盲样本的检验结果。</div>{% endif %}
+{% if not data.sample_history_recorded %}<p class="hint">此旧版报告未记录样本之前是否公开；解释独立性时请自行核对抽样历史。</p>{% endif %}
+<div class="stat-grid">
+  <section class="card stat"><span>分配单元</span><strong>{{ data.unit_count }}</strong><small>有效配对数量见下表</small></section>
+  <section class="card stat"><span>编码员</span><strong>{{ data.coder_count }}</strong></section>
+  <section class="card stat"><span>不确定记录</span><strong>{{ data.uncertain_count }}</strong><small>占全部分配记录 {{ data.uncertain_rate|percentage }}</small></section>
+  <section class="card stat"><span>主代码名义类别α</span><strong>{{ data.primary_alpha|coefficient }}</strong></section>
+</div>
+<section class="card"><h2>主、次代码分别比较</h2>
+  <div class="table-wrap"><table><thead><tr><th>编码员ID</th><th>有效配对单元</th><th>标签集合完全一致率</th><th>主代码一致率</th><th>主代码κ</th><th>次代码集合一致率</th></tr></thead>
+  <tbody>{% for pair in data.pairs %}<tr><td>{{ pair.coders|join:' / ' }}</td><td>{{ pair.n }}</td><td>{{ pair.agreement|percentage }}</td><td>{{ pair.primary_agreement|percentage }}</td><td>{{ pair.primary_kappa|coefficient }}</td><td>{{ pair.secondary_agreement|percentage }}</td></tr>{% empty %}<tr><td colspan="6">至少两位编码员才有配对比较。</td></tr>{% endfor %}</tbody></table></div>
+  <p class="hint">{% for id,name in data.coder_names.items %}{{ id }}＝{{ name }}　{% endfor %}</p>
+  <p class="hint">标签集合相同不表示主、次代码相同。单标签版本没有次代码比较。</p>
+</section>
+<section class="card"><h2>一级维度：主代码所属的最顶层类别</h2>
+{% if data.has_hierarchy %}
+  <p>名义类别α：{{ data.dimension_alpha|coefficient }}。只有编码本明确设置的父子关系参与归类，原始标签不改写。</p>
+  <div class="table-wrap"><table><thead><tr><th>编码员ID</th><th>有效配对单元</th><th>一级维度一致率</th><th>一级维度κ</th></tr></thead><tbody>{% for pair in data.pairs %}<tr><td>{{ pair.coders|join:' / ' }}</td><td>{{ pair.dimension_n }}</td><td>{{ pair.dimension_agreement|percentage }}</td><td>{{ pair.dimension_kappa|coefficient }}</td></tr>{% empty %}<tr><td colspan="4">没有可比较的编码员配对。</td></tr>{% endfor %}</tbody></table></div>
+{% else %}<p class="muted">该报告没有代码层级，或是旧版报告。平台不会按代码名称自动猜测一级维度。需要分层比较时，请在新编码本中设置父代码，并重新计算报告。</p>{% endif %}
+</section>
+<section class="card"><h2>逐代码“有 / 无”比较</h2><div class="table-wrap"><table><thead><tr><th>代码</th><th>名义类别α</th><th>各配对κ / 有效样本</th></tr></thead><tbody>{% for code in data.per_code %}<tr><td>{{ code.key }} · {{ code.name }}</td><td>{{ code.alpha|coefficient }}</td><td>{% for pair in code.pairs %}<span class="block">{{ pair.coders|join:' / ' }}：{{ pair.kappa|coefficient }} / n={{ pair.n }}</span>{% endfor %}</td></tr>{% endfor %}</tbody></table></div></section>
+<section class="card"><h2>计算说明</h2><p>{{ data.method }}</p><p>{{ data.undefined_note }}</p><p class="hint">报告生成时间：{{ report.created_at|date:'Y-m-d H:i' }}。初版不提供置信区间或自动“质量合格”结论。</p><a href="{% url 'disagreements' round.id %}">查看分歧与疑点，解释指标背后的原因 →</a></section>
+{% else %}<section class="card empty"><h2>还没有报告</h2><p>点击计算，保存带输入版本快照的报告。结果不能替代对分歧的具体分析。</p></section>{% endif %}{% endblock %}

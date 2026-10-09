@@ -1,0 +1,15 @@
+{% extends 'base.html' %}
+{% block content %}
+<div class="page-heading"><div class="eyebrow">编码本导入 · 不调用AI</div><h1>导入已有编码规则</h1><p>上传文件 → 对应字段 → 核对预览 → 确认使用。现有编码答案和冻结版本不会被覆盖。</p></div>
+{% if error %}<div class="notice danger" role="alert">{{ error }}</div>{% endif %}
+{% if mapping_form %}
+<section class="card"><h2>1. 查看文件内容</h2><p>{{ draft.filename }} · {{ row_count }}条非空记录</p>
+{% for warning in warnings %}<p class="hint">{{ warning }}</p>{% endfor %}
+{% if sheets|length > 1 %}<form method="post" class="button-row">{% csrf_token %}<input type="hidden" name="draft_id" value="{{ draft.id }}"><input type="hidden" name="action" value="sheet"><label for="sheet-switch">工作表</label><select id="sheet-switch" name="sheet">{% for sheet in sheets %}<option value="{{ sheet }}" {% if sheet == selected_sheet %}selected{% endif %}>{{ sheet }}</option>{% endfor %}</select><button class="button secondary" type="submit">切换工作表</button></form>{% endif %}
+<div class="table-wrap"><table><thead><tr>{% for header in headers %}<th>{{ header }}</th>{% endfor %}</tr></thead><tbody>{% for row in source_preview %}<tr>{% for value in row %}<td class="preserve">{{ value }}</td>{% endfor %}</tr>{% endfor %}</tbody></table></div><p class="hint">这里只显示前5条的片段；下一步会显示实际将导入的完整字段。未对应的来源列不作为代码字段，原文件仍保留。</p></section>
+<section class="card"><h2>2. 对应字段和导入方式</h2><p class="hint">每条代码必须有标识、名称和定义。上级填写代码标识；中文、英文列名都可以在这里手动对应。</p><form method="post">{% csrf_token %}<input type="hidden" name="draft_id" value="{{ draft.id }}"><input type="hidden" name="action" value="preview"><input type="hidden" name="sheet" value="{{ selected_sheet }}">{{ mapping_form.as_p }}<p class="hint">“独立新版本”只包含本次文件中的代码，不自动合并旧版本。追加草稿则保留已有代码，不覆盖同名标识。</p><button class="button" type="submit">检查并预览导入结果 →</button><a class="inline-link" href="{% url 'book_import' project.id book.id %}">重新选择文件</a></form></section>
+{% else %}
+<section class="card file-upload-card"><h2>上传你的编码本</h2><p>表格支持Excel、CSV、TSV、JSON；文档支持Word DOCX、TXT、Markdown和可复制文字的PDF。</p><p class="hint">一行一条代码，第一行是表头。文档请使用带字段表头的表格，或按“代码标识：…、代码名称：…、定义：…”分块填写。普通论文、图片或扫描PDF不会自动变成规则。</p><form method="post" enctype="multipart/form-data">{% csrf_token %}<input type="hidden" name="action" value="upload"><p><label for="book-file">编码本文件（最大8MB、1000条代码）</label><input id="book-file" type="file" name="file" accept=".xlsx,.csv,.tsv,.json,.docx,.txt,.md,.pdf" required></p><button class="button" type="submit">上传并查看字段 →</button></form></section>
+<section class="card"><h2>不确定文件怎么整理？先下载模板</h2><p>替换示例行后再上传。名称和定义由你根据研究目的填写，平台不会替你规定代码。</p><div class="button-row"><a class="button secondary" href="{% url 'book_template' project.id book.id 'xlsx' %}">Excel模板</a><a class="button secondary" href="{% url 'book_template' project.id book.id 'docx' %}">Word模板</a><a class="button secondary" href="{% url 'book_template' project.id book.id 'csv' %}">CSV模板</a><a class="button secondary" href="{% url 'book_template' project.id book.id 'txt' %}">文本模板</a><a class="button secondary" href="{% url 'book_template' project.id book.id 'json' %}">JSON模板</a></div><p class="hint">旧版DOC或XLS请先另存为DOCX或XLSX。PDF排版可能导致文字错位，推荐使用Word或Excel原件。</p></section>
+{% endif %}
+{% endblock %}
