@@ -82,3 +82,19 @@ test('an imported codebook returns to the earlier codebook instead of replaying 
   setup('/p/2/books/4/import/?draft=demo&stage=preview','/p/2/',{store});
   const ui=setup('/p/2/books/5/','/p/2/',{store});ui.click();assert.equal(ui.moves[0],'/p/2/books/4/');
 });
+
+test('quick start progress and searched history keep their return paths',()=>{
+  const store=new Map();setup('/p/2/','/',{store});
+  setup('/p/2/quick-start/','/p/2/',{store});
+  setup('/p/2/progress/?page=2','/p/2/',{store});
+  setup('/p/2/history/?mode=exact&unit_id=31&period=week','/p/2/',{store});
+  const ui=setup('/p/2/history/77/','/p/2/',{store});ui.click();
+  assert.equal(ui.moves[0],'/p/2/history/?mode=exact&unit_id=31&period=week');
+});
+
+test('history reopen and personal finish posts never become return targets',()=>{
+  const store=new Map([['ai-coding-platform:navigation:v1:7',JSON.stringify([
+    '/p/2/history/77/reopen/','/p/2/quick/5/finish/','/api/projects/2/progress/'])]]);
+  const ui=setup('/p/2/progress/','/p/2/',{store});ui.click();
+  assert.equal(ui.moves[0],'/p/2/');
+});

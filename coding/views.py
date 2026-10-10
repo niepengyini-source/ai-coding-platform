@@ -22,6 +22,7 @@ from .reliability import report_for
 from .reviewing import disagreement_rows
 from .account_forms import InvitationForm, JoinReviewForm
 from .group_services import mark_approved
+from .workflow import visible_rounds
 
 
 def access(request, project_id, roles=None):
@@ -34,6 +35,8 @@ def access(request, project_id, roles=None):
 def round_access(request, round_id, roles=None):
     r = get_object_or_404(Round.objects.select_related('project', 'book'), pk=round_id)
     p, role = access(request, r.project_id, roles)
+    if r.kind == 'quick' and r.started_by_id != request.user.pk and role not in ('owner', 'reviewer'):
+        raise Http404
     return r, role
 
 
@@ -134,7 +137,7 @@ def project_view(request, project_id):
                     return redirect('project', project.id)
     return render(request, 'coding/project.html', {'project': project, 'role': role, 'form': form,
         'unit_count': Unit.objects.filter(record__document__project=project, active=True).count(),
-        'rounds': project.rounds.select_related('book').order_by('-id')})
+        'rounds': visible_rounds(project, request.user, role).select_related('book', 'started_by').order_by('-id')})
 
 
 @login_required
@@ -382,7 +385,7 @@ def round_new(request, project_id):
         except (ValueError, OperationalError) as error:
             form.add_error(None, str(error))
     return render(request, 'coding/form.html', {'project': project, 'role': role, 'form': form,
-                                               'title': '安排新一轮编码', 'button': '冻结规则并分配任务',
+                                               'title': '安排新一轮编码', 'button': '开始编码并分配任务',
                                                'hint': '新轮次固定当前单元和规则版本。培训可公开讨论，独立试编码与正式编码提交前隐藏他人答案。'})
 
 
@@ -407,6 +410,7 @@ def workbench(request, round_id):
     codes = list(r.book.codes.all())
     return render(request, 'coding/workbench.html', {'project': r.project, 'role': role, 'round': r,
         'assignment': a, 'annotation': annotation_data(a) if a else {}, 'codes': codes, 'context': context,
+        'annotation_locked': role == 'viewer' or r.state != 'active' or (a is not None and a.status == 'submitted'),
         'tasks': task_page,
         'previous_task': mine.filter(id__lt=a.id).order_by('-id').first() if a else None,
         'next_task': mine.filter(id__gt=a.id).first() if a else None,
@@ -442,6 +446,8 @@ def assignment_save(request, assignment_id):
 @login_required
 def round_manage(request, round_id):
     r, role = round_access(request, round_id, ['owner', 'reviewer'])
+    if r.kind == 'quick':
+        raise PermissionDenied('个人快速编码请由本人完成并归档，不使用协商轮次操作。')
     try:
         with transaction.atomic():
             r = Round.objects.select_for_update().get(pk=r.pk)
@@ -582,6 +588,8 @@ def comment_add(request, round_id, unit_id):
 @login_required
 def reliability(request, round_id):
     r, role = round_access(request, round_id, ['owner', 'reviewer'])
+    if r.kind == 'quick':
+        raise PermissionDenied('个人快速编码不是独立一致性评估，请安排多人独立编码轮次。')
     review_access(request, r, role)
     if r.state == 'active':
         raise PermissionDenied
@@ -614,6 +622,8 @@ def export_round(request, round_id, mode):
             return HttpResponse('本轮超过50000条判断，请按编码员分别导出。', status=400)
         table = annotation_table(r, r.assignments.all())
     elif mode == 'final':
+        if r.kind == 'quick':
+            raise PermissionDenied('个人快速编码没有多人协商定稿，请导出个人判断。')
         if r.state != 'closed':
             raise PermissionDenied('最终导出需要先完成协商并归档。')
         if r.decisions.filter(cycle=r.cycle).count() > MAX_EXPORT_ROWS:

@@ -32,12 +32,15 @@ FIELDS = [
 ]
 ALIASES = {
     'key': ['key', 'code', 'code_key', 'code_id', '代码标识', '代码', '编码', '编码标识', '代码编号', '编号'],
-    'name': ['name', 'code_name', 'label', '代码名称', '编码名称', '名称'],
-    'definition': ['definition', 'description', '定义', '代码定义', '编码定义', '说明'],
+    'name': ['name', 'code_name', 'label', 'code_label', 'category_name', '代码名称', '编码名称', '名称', '类别名称'],
+    'definition': ['definition', 'description', 'code_definition', 'definition of behavior',
+                   'definition of behaviour', 'behavior definition', 'behaviour definition',
+                   '定义', '代码定义', '编码定义', '行为定义', '操作性定义', '说明'],
     'parent_key': ['parent_key', 'parent_code', 'parent', '上级代码标识', '上级代码', '父代码', '父级代码'],
     'include_when': ['include_when', 'inclusion', 'include', '适用条件', '纳入条件', '使用条件', '什么情况下使用'],
     'exclude_when': ['exclude_when', 'exclusion', 'exclude', '排除条件', '不适用条件', '什么情况下不使用'],
-    'positive_example': ['positive_example', 'positive_examples', '正例', '正面例子'],
+    'positive_example': ['positive_example', 'positive_examples', 'example', 'examples',
+                         'behavior example', 'behaviour example', '正例', '正面例子', '示例', '例子', '举例'],
     'negative_example': ['negative_example', 'negative_examples', '反例', '反面例子'],
     'boundary_example': ['boundary_example', 'boundary_examples', '边界例', '边界案例'],
     'coexist_priority': ['coexist_priority', 'priority', '共现与优先规则', '共现与优先', '共现规则', '优先规则'],
@@ -52,10 +55,15 @@ def normalize_header(value):
 LOOKUP = {normalize_header(alias): field for field, aliases in ALIASES.items() for alias in aliases}
 
 
-def suggest_mapping(headers):
-    return {field: next((h for h in headers if normalize_header(h) == normalize_header(field)), '')
-            or next((h for h in headers if LOOKUP.get(normalize_header(h)) == field), '')
+def mapping_candidates(headers):
+    """Only explicit header aliases are matched; competing columns need a human choice."""
+    return {field: [h for h in headers if LOOKUP.get(normalize_header(h)) == field]
             for field, _, _ in FIELDS}
+
+
+def suggest_mapping(headers):
+    return {field: choices[0] if len(choices) == 1 else ''
+            for field, choices in mapping_candidates(headers).items()}
 
 
 def text_decode(raw):
@@ -196,6 +204,9 @@ def json_table(raw):
             if entry['parent'] is not None and str(entry['parent']) not in ids:
                 raise ValueError('JSON的上级代码编号无法对应到文件中的代码。')
             entry['parent_key'] = ids.get(str(entry['parent']), '')
+            # The archive's numeric parent has now been resolved. Keeping both
+            # columns would look like two competing human-readable parent fields.
+            del entry['parent']
         if any(isinstance(v, (dict, list)) for v in entry.values()):
             raise ValueError('代码字段应为文字，不支持嵌套字段。')
         rows.append({str(k): '' if v is None else str(v) for k, v in entry.items()})
@@ -228,7 +239,7 @@ def document_blocks(text):
         field = LOOKUP.get(normalize_header(match[1].strip('* '))) if match else None
         if field:
             if field in current:
-                if field in ('key', 'name') and all(current.get(k, '').strip() for k in ('key', 'name', 'definition')):
+                if field in ('key', 'name') and all(current.get(k, '').strip() for k in ('key', 'definition')):
                     rows.append(current)
                     current = {}
                 else:
@@ -240,7 +251,7 @@ def document_blocks(text):
                 current[last_field] += '\n' + line.strip()
             else:
                 ignored += 1
-        elif current and all(current.get(k, '').strip() for k in ('key', 'name', 'definition')):
+        elif current and all(current.get(k, '').strip() for k in ('key', 'definition')):
             rows.append(current)
             current, last_field = {}, None
         if len(rows) > MAX_CODES:
@@ -355,6 +366,11 @@ def normalized_codes(rows, mapping, existing=()):
     codes, keys = [], set()
     for position, row in enumerate(rows, 2):
         entry = {field: str(row.get(mapping.get(field), '') or '').strip() for field, _, _ in FIELDS}
+        # A two/three-column rule table often has no distinct name column. Reuse the
+        # supplied code verbatim; never substitute a definition/example as its name.
+        # An explicitly selected but empty name column is still a validation error.
+        if not mapping.get('name'):
+            entry['name'] = entry['key']
         if not any(entry.values()):
             raise ValueError(f'第{position}行有数据，但所选编码字段均为空。请检查列对应，不会静默跳过。')
         for field, label, required in FIELDS:

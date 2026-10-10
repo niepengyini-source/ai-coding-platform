@@ -6,7 +6,7 @@
   const identity = document.body.dataset.navigationUser || 'anonymous';
   const storageKey = 'ai-coding-platform:navigation:v1:' + identity;
   const current = location.pathname + location.search;
-  const allowedPage = /^\/(?:$|login\/$|guide\/$|accounts\/(?:register|password(?:\/done)?)\/$|groups\/join\/$|projects\/new\/$|p\/\d+\/(?:$|members\/$|materials\/$|units\/$|exports\/$|books\/(?:new|\d+(?:\/import)?)\/$|rounds\/new\/$)|r\/\d+\/(?:$|review\/$|disagreements\/$|report\/$))/;
+  const allowedPage = /^\/(?:$|login\/$|guide\/$|accounts\/(?:register|password(?:\/done)?)\/$|groups\/join\/$|projects\/new\/$|p\/\d+\/(?:$|members\/$|materials\/$|units\/$|exports\/$|quick-start\/$|progress\/$|history\/(?:\d+\/)?$|books\/(?:new|\d+(?:\/import)?)\/$|rounds\/new\/$)|r\/\d+\/(?:$|review\/$|disagreements\/$|report\/$))/;
   const safePath = value => {
     if (typeof value !== 'string' || !value.startsWith('/') || value.startsWith('//') || value.length > 4000) return null;
     try {

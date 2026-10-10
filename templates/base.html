@@ -2,7 +2,7 @@
 <!doctype html>
 <html lang="zh-CN"><head><meta charset="utf-8"><meta name="viewport" content="width=device-width,initial-scale=1">
 <title>{% block title %}AI辅助编码平台{% endblock %}</title>
-<link rel="stylesheet" href="{% static 'app.css' %}"><link rel="stylesheet" href="{% static 'controls.css' %}"><script src="{% static 'app.js' %}" defer></script><script src="{% static 'navigation.js' %}" defer></script><script src="{% static 'file_tools.js' %}" defer></script></head>
+<link rel="stylesheet" href="{% static 'app.css' %}"><link rel="stylesheet" href="{% static 'controls.css' %}"><script src="{% static 'app.js' %}" defer></script><script src="{% static 'navigation.js' %}" defer></script><script src="{% static 'file_tools.js' %}" defer></script><script src="{% static 'workflow.js' %}" defer></script></head>
 <body data-navigation-user="{% if user.is_authenticated %}{{ user.pk }}{% else %}anonymous{% endif %}">
 <aside class="sidebar">
   <a class="brand" href="{% url 'home' %}"><span class="brand-symbol">A</span><span>AI辅助编码平台<small>协作 · 判断 · 追溯</small></span></a>
@@ -15,10 +15,14 @@
   {% if role == 'owner' or role == 'reviewer' %}<a class="nav-item" href="{% url 'materials' project.id %}">＋ 导入材料</a>{% endif %}
   {% with latest=project.codebooks.first %}{% if latest %}<a class="nav-item" href="{% url 'codebook' project.id latest.id %}">◇ 编码本与版本</a>{% endif %}{% endwith %}
   <a class="nav-item" href="{% url 'exports' project.id %}">⇩ 导出中心</a>
+  {% url 'quick_start' project.id as quick_start_url %}{% url 'progress' project.id as progress_url %}{% url 'history' project.id as history_url %}
+  {% if quick_start_url and role != 'viewer' %}<a class="nav-item" href="{{ quick_start_url }}">▶ 快速开始编码</a>{% endif %}
+  {% if progress_url %}<a class="nav-item" href="{{ progress_url }}">▥ 编码进度</a>{% endif %}
+  {% if history_url %}<a class="nav-item" href="{{ history_url }}">◷ 我的编码历史</a>{% endif %}
   {% if role == 'owner' %}<a class="nav-item" href="{% url 'members' project.id %}">♧ 项目成员</a>{% endif %}
   {% if role == 'owner' or role == 'reviewer' %}<a class="nav-item" href="{% url 'round_new' project.id %}">＋ 安排编码任务</a>{% endif %}
-  {% if round %}<div class="nav-label">当前轮次</div><a class="nav-item" href="{% url 'workbench' round.id %}">▣ 编码工作台</a>{% if round.state != 'active' or round.kind == 'training' %}<a class="nav-item" href="{% url 'disagreements' round.id %}">☷ 分歧与疑点清单</a><a class="nav-item" href="{% url 'review' round.id %}">⇄ 逐条协商定稿</a>{% endif %}
-  {% if round.state != 'active' %}{% if role == 'owner' or role == 'reviewer' %}<a class="nav-item" href="{% url 'reliability' round.id %}">▥ 一致性报告</a>{% endif %}{% endif %}{% endif %}
+  {% if round %}<div class="nav-label">当前轮次</div><a class="nav-item" href="{% url 'workbench' round.id %}">▣ 编码工作台</a>{% if round.kind != 'quick' %}{% if round.state != 'active' or round.kind == 'training' %}<a class="nav-item" href="{% url 'disagreements' round.id %}">☷ 分歧与疑点清单</a><a class="nav-item" href="{% url 'review' round.id %}">⇄ 逐条协商定稿</a>{% endif %}
+  {% if round.state != 'active' %}{% if role == 'owner' or role == 'reviewer' %}<a class="nav-item" href="{% url 'reliability' round.id %}">▥ 一致性报告</a>{% endif %}{% endif %}{% endif %}{% endif %}
   {% endif %}</nav>
   <div class="sidebar-note"><span class="dot"></span> 人工编码模式<p>本阶段不调用AI，不向模型发送材料。</p></div>
 </aside>

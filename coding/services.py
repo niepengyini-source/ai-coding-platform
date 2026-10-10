@@ -112,6 +112,8 @@ def clone_book(project, actor, source, title, policy, change_note):
 @transaction.atomic
 def create_round(project, actor, book_id, name, kind, coder_ids, count, seed, distribution, double_percent, stratify='', unit_ids=None):
     Project.objects.select_for_update().get(pk=project.pk)
+    if kind == 'quick' and (coder_ids != [actor.pk] or count or distribution != 'all' or stratify or unit_ids):
+        raise ValueError('快速开始只能为本人编码全部有效单元，不分配他人任务。')
     book = Codebook.objects.select_for_update().get(project=project, pk=book_id)
     if not book.codes.exists():
         raise ValueError('请先填写至少一个代码及其定义。')
@@ -131,7 +133,9 @@ def create_round(project, actor, book_id, name, kind, coder_ids, count, seed, di
     if count > len(units):
         raise ValueError('抽样数量超过现有单元数。')
     rng = random.Random(seed)
-    if stratify:
+    if kind == 'quick':
+        selected = units
+    elif stratify:
         groups = defaultdict(list)
         for unit in units:
             groups[str(unit.record.metadata.get(stratify, ''))].append(unit)
@@ -153,7 +157,8 @@ def create_round(project, actor, book_id, name, kind, coder_ids, count, seed, di
     book.revision += 1
     book.save(update_fields=['frozen', 'revision'])
     r = Round.objects.create(project=project, book=book, name=name, kind=kind,
-        sampling={'method': ('指定单元池＋' if requested_ids else '') + ('分层轮流抽样' if stratify else '随机抽样'), 'seed': seed, 'stratify': stratify,
+        started_by=actor if kind == 'quick' else None,
+        sampling={'method': '个人快速开始：全部有效单元，按原文顺序' if kind == 'quick' else ('指定单元池＋' if requested_ids else '') + ('分层轮流抽样' if stratify else '随机抽样'), 'seed': seed, 'stratify': stratify,
                   'specified_pool_ids': sorted(requested_ids),
                   'previously_visible_unit_ids': visible_ids,
                   'count': count, 'distribution': distribution, 'double_percent': double_percent,
@@ -280,16 +285,19 @@ def project_archive(project):
                      'book_version': book.version, 'preview': source.preview,
                      'sha256': hashlib.sha256(bytes(source.raw)).hexdigest()})
     for r in project.rounds.all():
-        folder = '03_pilot' if r.kind != 'formal' else '04_formal_coding'
+        folder = '03_personal_coding' if r.kind == 'quick' else ('03_pilot' if r.kind != 'formal' else '04_formal_coding')
         files[f'{folder}/round_{r.id}_independent.csv'] = export_annotations(r, r.assignments.all())
         add_json(f'{folder}/round_{r.id}_settings.json', {'name': r.name, 'kind': r.kind, 'book_version': r.book.version,
-                                                        'cycle': r.cycle, 'sampling': r.sampling})
+                                                        'cycle': r.cycle, 'sampling': r.sampling,
+                                                        'started_by': r.started_by_id,
+                                                        'note': '个人编码记录，不是多人协商定稿或独立一致性评估。' if r.kind == 'quick' else ''})
         add_json(f'{folder}/round_{r.id}_reports.json', list(r.reports.values()))
         add_json(f'05_adjudication/round_{r.id}_decisions.json', list(r.decisions.values()))
         from .models import Comment
         add_json(f'05_adjudication/round_{r.id}_comments.json', list(Comment.objects.filter(round=r).values()))
         files[f'05_adjudication/round_{r.id}_disagreements.csv'] = export_disagreements(r)
-        files[f'06_final/round_{r.id}.csv'] = export_final(r)
+        if r.kind != 'quick':
+            files[f'06_final/round_{r.id}.csv'] = export_final(r)
     add_json('99_logs/audit.json', list(AuditEvent.objects.filter(project=project).values()))
     add_json('manifest.json', {'created_at': timezone.now().isoformat(), 'format_version': 1,
         'files': {name: {'bytes': len(data), 'sha256': hashlib.sha256(data).hexdigest()} for name, data in files.items()},

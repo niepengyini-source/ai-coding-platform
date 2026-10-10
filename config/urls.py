@@ -4,6 +4,7 @@ from django.views.generic import TemplateView
 from coding import views as v
 from coding import accounts as a
 from coding import file_views as f
+from coding import workflow_views as w
 from coding.account_forms import PlatformLoginForm
 
 urlpatterns = [
@@ -31,6 +32,13 @@ urlpatterns = [
     path('p/<int:project_id>/books/<int:book_id>/freeze/', v.book_freeze, name='book_freeze'),
     path('p/<int:project_id>/codes/<int:code_id>/remove/', v.code_remove, name='code_remove'),
     path('p/<int:project_id>/rounds/new/', v.round_new, name='round_new'),
+    path('p/<int:project_id>/quick-start/', w.quick_start, name='quick_start'),
+    path('p/<int:project_id>/quick/<int:round_id>/finish/', w.quick_finish, name='quick_finish'),
+    path('p/<int:project_id>/progress/', w.progress, name='progress'),
+    path('api/projects/<int:project_id>/progress/', w.progress_api, name='project_progress'),
+    path('p/<int:project_id>/history/', w.history, name='history'),
+    path('p/<int:project_id>/history/<int:assignment_id>/', w.history_detail, name='history_detail'),
+    path('p/<int:project_id>/history/<int:assignment_id>/reopen/', w.history_reopen, name='history_reopen'),
     path('p/<int:project_id>/archive/', v.archive, name='archive'),
     path('r/<int:round_id>/', v.workbench, name='workbench'),
     path('api/rounds/<int:round_id>/progress/', v.round_progress, name='round_progress'),

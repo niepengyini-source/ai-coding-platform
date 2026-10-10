@@ -164,7 +164,9 @@ class Round(models.Model):
     project = models.ForeignKey(Project, on_delete=models.CASCADE, related_name='rounds')
     book = models.ForeignKey(Codebook, on_delete=models.PROTECT)
     name = models.CharField(max_length=120)
-    kind = models.CharField(max_length=10, choices=[('training', '培训练习'), ('pilot', '独立试编码'), ('formal', '正式编码')])
+    kind = models.CharField(max_length=10, choices=[('training', '培训练习'), ('pilot', '独立试编码'), ('formal', '正式编码'), ('quick', '个人快速编码')])
+    started_by = models.ForeignKey(UserRef, null=True, blank=True, on_delete=models.PROTECT,
+                                  related_name='quick_coding_rounds')
     state = models.CharField(max_length=10, choices=[('active', '编码中'), ('review', '协商中'), ('closed', '已归档')], default='active')
     sampling = models.JSONField(default=dict)
     cycle = models.PositiveIntegerField(default=1)
@@ -188,6 +190,7 @@ class Assignment(models.Model):
 
     class Meta:
         constraints = [models.UniqueConstraint(fields=['round', 'unit', 'coder'], name='unique_independent_assignment')]
+        indexes = [models.Index(fields=['coder', '-updated_at', '-id'], name='coding_history_by_user')]
 
 
 class Decision(models.Model):

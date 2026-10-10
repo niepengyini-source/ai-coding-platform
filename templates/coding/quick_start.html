@@ -1,0 +1,13 @@
+{% extends 'base.html' %}
+{% block content %}
+<div class="page-heading"><div class="eyebrow">不需要填写任务安排表</div><h1>快速开始编码</h1><p>使用已有编码本，由你本人编码全部有效单元。其他成员的任务和答案不改变。</p></div>
+{% if not has_books %}<section class="card"><h2>先准备编码规则</h2><p>当前没有可用的编码规则。请先导入或填写编码本；普通编码成员可以请负责人准备。</p><a class="button secondary" href="{% url 'project' project.id %}">返回项目</a></section>
+{% else %}
+{% if resume %}<section class="card"><h2>你已有未归档的个人编码</h2><p>{{ resume.name }} · 批次 #{{ resume.id }}。再次开始会继续这批记录，不重复分配。</p><a class="button" href="{% url 'workbench' resume.id %}">继续我的编码 →</a></section>{% endif %}
+<section class="card narrow"><h2>开始前确认</h2><p>当前有 <strong>{{ unit_count }}</strong> 个有效单元。开始后按原文顺序编码，本批材料和规则会固定；后续导入的新材料不会自动插入本批。</p>
+{% if not unit_count %}<div class="notice danger">还没有有效编码单元，请先导入材料并确认单元。已有批次仍可从上方继续。</div>{% endif %}
+<form method="post">{% csrf_token %}{{ form.non_field_errors }}{{ form.token.errors }}{{ form.token }}<p>{{ form.book_id.label_tag }}{{ form.book_id.errors }}{{ form.book_id }}</p><p class="hint">开始时平台自动固定所选版本，不必另点“冻结”。需要修订规则时复制新版，不覆盖旧编码。</p>
+<div class="button-row"><button class="button" type="submit" {% if not unit_count %}disabled{% endif %}>开始 / 继续我的编码 →</button>{% if role == 'owner' or role == 'reviewer' %}<a class="button secondary" href="{% url 'round_new' project.id %}">改为安排多人任务</a>{% endif %}</div></form>
+<p class="hint">个人快速编码用于自己的编码工作，不等同于多人盲法试编码或一致性评估。需要多人分工、抽样或复核时，使用“安排编码任务”。</p></section>
+{% endif %}
+{% endblock %}

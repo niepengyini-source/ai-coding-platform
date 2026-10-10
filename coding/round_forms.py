@@ -5,7 +5,7 @@ from .models import Round, Unit
 
 class RoundForm(forms.Form):
     name = forms.CharField(label='轮次名称', max_length=120)
-    kind = forms.ChoiceField(label='工作阶段', choices=Round._meta.get_field('kind').choices, initial='pilot')
+    kind = forms.ChoiceField(label='工作阶段', choices=[choice for choice in Round._meta.get_field('kind').choices if choice[0] != 'quick'], initial='pilot')
     book_id = forms.TypedChoiceField(label='采用的编码本', coerce=int)
     coder_ids = forms.TypedMultipleChoiceField(label='编码员（可选多人）', coerce=int, widget=forms.CheckboxSelectMultiple)
     count = forms.IntegerField(label='抽样单元数（0表示全部）', min_value=0, initial=0)
