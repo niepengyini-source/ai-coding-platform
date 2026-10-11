@@ -6,14 +6,15 @@ const fs = require('node:fs');
 const path = require('node:path');
 const source = fs.readFileSync(path.join(__dirname, '../static/app.js'), 'utf8');
 
-function setup(fetchImplementation, initial = {}, mode = 'annotation') {
+function setup(fetchImplementation, initial = {}, mode = 'annotation', nextUrl = '/r/1/?a=2') {
   const listeners = {}, windowListeners = {}, timers = new Map();
   const fields = Object.fromEntries(['primary','note','no_code','uncertain','csrfmiddlewaretoken'].map(name => [name, {value:'',checked:false,disabled:false,addEventListener(){}}]));
   fields.csrfmiddlewaretoken.value = 'test-token';
   const secondary = [{value:'2',checked:false,disabled:false}];
   const buttons = [{disabled:false}, {disabled:false}];
   const status = {textContent:'', className:''};
-  const form = {dataset:{endpoint:'/api/test/',mode,locked:'false'},
+  const navigations = [];
+  const form = {dataset:{endpoint:'/api/test/',mode,locked:'false',nextUrl},
     addEventListener: (name, fn) => listeners[name] = fn,
     querySelector: selector => selector === '.save-status' ? status : fields[selector.match(/name=([^\]]+)/)[1]],
     querySelectorAll: selector => {
@@ -26,12 +27,12 @@ function setup(fetchImplementation, initial = {}, mode = 'annotation') {
     }};
   const context = {document:{hidden:false,querySelector:()=>form,querySelectorAll:()=>[],
     getElementById: id => id === 'annotation-data' ? {textContent:JSON.stringify({revision:0,secondary:[],...initial})} : null},
-    location:{pathname:'/fixture/',href:'http://localhost/fixture/'},
+    location:{pathname:'/fixture/',origin:'http://localhost',href:'http://localhost/fixture/',assign: url=>navigations.push(url)},
     window:{addEventListener:(name,fn)=>windowListeners[name]=fn},
     fetch:fetchImplementation, URL, Promise, Date, Math,
     setTimeout: fn => {const id=Math.random();timers.set(id,fn);return id;},clearTimeout:id=>timers.delete(id),setInterval:()=>{}};
   vm.runInNewContext(source, context);
-  return {fields,secondary,status,buttons,
+  return {fields,secondary,status,buttons,navigations,
     edit: text => {fields.note.value=text;listeners.input();},
     click: action => listeners.submit({preventDefault(){},submitter:{dataset:{action}}}),
     autoSave:()=>{const callbacks=[...timers.values()];timers.clear();callbacks.forEach(fn=>fn());},
@@ -110,4 +111,35 @@ test('manual decision must be saved before return, without implicit submission',
   let calls=0;const ui=setup(async()=>{calls++;return response({revision:1});},{},'decision');
   ui.edit('协商判断');assert.equal(ui.canReturn(),false);assert.equal(calls,0);
   ui.click('save');await flush();assert.equal(ui.canReturn(),true);
+});
+
+test('confirm and next submits once and only navigates after acknowledged submission',async()=>{
+  let finish;const sent=[];
+  const ui=setup((url,options)=>{sent.push(JSON.parse(options.body));return new Promise(resolve=>finish=resolve);});
+  ui.fields.primary.value='1';ui.edit('最终判断');ui.click('submit_next');
+  assert.equal(ui.navigations.length,0);assert.equal(sent[0].action,'submit');
+  finish(response({revision:1,status:'submitted'}));await flush();
+  assert.deepEqual(ui.navigations,['/r/1/?a=2']);assert.equal(ui.canReturn(),true);
+});
+test('confirm and next after a failed autosave submits latest text before navigation',async()=>{
+  const sent=[];
+  const ui=setup(async(url,options)=>{const payload=JSON.parse(options.body);sent.push(payload);if(sent.length===1)throw new Error('offline');return response({revision:sent.length-1,status:payload.action==='submit'?'submitted':'draft'});});
+  ui.edit('之前的草稿');ui.autoSave();await flush();ui.edit('最终输入');ui.click('submit_next');await flush();
+  assert.equal(sent[2].action,'submit');assert.equal(sent[2].note,'最终输入');
+  assert.deepEqual(ui.navigations,['/r/1/?a=2']);
+});
+test('confirm and next errors retain text without navigating; autosave never advances',async()=>{
+  for(const status of [400,409,503]) {
+    const ui=setup(async()=>response(null,status,'请核对输入'));
+    ui.edit('不能丢');ui.click('submit_next');await flush();
+    assert.equal(ui.fields.note.value,'不能丢');assert.equal(ui.navigations.length,0);
+  }
+  const ui=setup(async()=>response({revision:1,status:'draft'}));
+  ui.edit('只保存');ui.autoSave();await flush();assert.equal(ui.navigations.length,0);
+});
+test('confirm and next refuses an external or unrelated destination',async()=>{
+  for(const target of ['https://other.test/', '//other.test/r/1/', '/logout/', '/r/1/?a=2&evil=1']) {
+    const ui=setup(async()=>response({revision:1,status:'submitted'}),{},'annotation',target);
+    ui.click('submit_next');await flush();assert.equal(ui.navigations.length,0);
+  }
 });

@@ -128,11 +128,12 @@ class SourceDocument(models.Model):
     raw = models.BinaryField()
     text_column = models.CharField(max_length=200)
     context_column = models.CharField(max_length=200, blank=True)
+    sheet_name = models.CharField(max_length=200, blank=True)
     import_note = models.TextField(blank=True)
     created_at = models.DateTimeField(auto_now_add=True)
 
     class Meta:
-        constraints = [models.UniqueConstraint(fields=['project', 'sha256'], name='no_duplicate_document')]
+        constraints = [models.UniqueConstraint(fields=['project', 'sha256', 'sheet_name'], name='no_duplicate_document')]
 
 
 class SourceRecord(models.Model):
@@ -178,6 +179,8 @@ class Assignment(models.Model):
     round = models.ForeignKey(Round, on_delete=models.CASCADE, related_name='assignments')
     unit = models.ForeignKey(Unit, on_delete=models.PROTECT)
     coder = models.ForeignKey(UserRef, on_delete=models.PROTECT)
+    parent = models.ForeignKey('self', null=True, blank=True, on_delete=models.PROTECT, related_name='segments')
+    superseded = models.BooleanField(default=False)
     primary = models.ForeignKey(Code, null=True, blank=True, on_delete=models.PROTECT)
     secondary = models.JSONField(default=list)
     uncertain = models.BooleanField(default=False)

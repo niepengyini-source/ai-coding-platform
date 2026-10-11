@@ -1,6 +1,10 @@
 'use strict';
 document.querySelectorAll('.nav-item').forEach(a => {
-  if (new URL(a.href).pathname === location.pathname) a.classList.add('active');
+  if (new URL(a.href).pathname === location.pathname) {
+    a.classList.add('active');
+    const group = a.closest('details');
+    if (group) group.open = true;
+  }
 });
 document.querySelectorAll('form[data-confirm]').forEach(el => el.addEventListener('submit', event => {
   if (!window.confirm(el.dataset.confirm)) event.preventDefault();
@@ -16,6 +20,7 @@ if (form) {
   ['uncertain','no_code'].forEach(k => form.querySelector(`[name=${k}]`).checked = !!initial[k]);
   form.querySelectorAll('[name=secondary]').forEach(el => el.checked = (initial.secondary || []).includes(Number(el.value)));
   let revision = initial.revision, dirty = false, generation = 0, inFlight = false, timer, halted = false, pending = null, committed = false;
+  form.dataset.revision = revision;
   const locked = form.dataset.locked === 'true';
   if (locked) form.querySelectorAll('input,textarea,select,button').forEach(el => el.disabled = true);
   const setStatus = (text, kind = '') => { status.textContent = text; status.className = `save-status ${kind}`; };
@@ -30,11 +35,14 @@ if (form) {
   async function write(action) {
     if (locked || halted || inFlight) return;
     clearTimeout(timer);
-    const savedRequest = pending || {payload: payload(action), generation};
+    const advance = action === 'submit_next';
+    const saveAction = advance ? 'submit' : action;
+    const savedRequest = pending || {payload: payload(saveAction), generation};
     const currentGeneration = savedRequest.generation;
     const request = savedRequest.payload;
     pending = savedRequest;
     let succeeded = false;
+    let destination = null;
     inFlight = true;
     form.querySelectorAll('button').forEach(el => el.disabled = true);
     if (request.action === 'submit') form.querySelectorAll('input:not([type=hidden]),textarea,select').forEach(el => el.disabled = true);
@@ -52,6 +60,7 @@ if (form) {
         return;
       }
       revision = data.annotation.revision;
+      form.dataset.revision = revision;
       pending = null;
       succeeded = true;
       dirty = generation !== currentGeneration;
@@ -61,6 +70,8 @@ if (form) {
         dirty = false;
         form.querySelectorAll('input,textarea,select,button').forEach(el => el.disabled = true);
         setStatus('已提交并锁定。重新打开时仍可查看。', 'success');
+        const target = data.next_url || form.dataset.nextUrl || '';
+        if (advance && /^\/(?:r\/\d+\/\?a=\d+|p\/\d+\/progress\/)$/u.test(target)) destination = target;
       } else {
         setStatus(dirty ? '已有新编辑，准备继续保存…' : `已保存 · 版本${revision} · ${new Date().toLocaleTimeString()}`, 'success');
       }
@@ -70,17 +81,24 @@ if (form) {
     } finally {
       inFlight = false;
       if (!committed) {
-        form.querySelectorAll('input:not([type=hidden]),textarea,select').forEach(el => el.disabled = false);
+        form.querySelectorAll('input:not([type=hidden]),textarea,select').forEach(el => el.disabled = pending?.payload.action === 'submit');
         form.querySelectorAll('button').forEach(el => el.disabled = halted);
       }
       // Do not loop indefinitely on a network error or validation error.
-      if (succeeded && action === 'submit' && request.action !== 'submit') {
-        Promise.resolve().then(() => write('submit'));
+      if (succeeded && saveAction === 'submit' && request.action !== 'submit') {
+        Promise.resolve().then(() => write(action));
       } else if (dirty && !pending && generation !== currentGeneration) schedule();
+      if (destination) location.assign(destination);
     }
   }
-  form.addEventListener('input', () => { dirty = true; generation++; setStatus('有未保存的编辑'); schedule(); });
-  form.addEventListener('change', () => { dirty = true; generation++; schedule(); });
+  form.addEventListener('input', event => {
+    if (event?.target?.name === 'code_search') return;
+    dirty = true; generation++; setStatus('有未保存的编辑'); schedule();
+  });
+  form.addEventListener('change', event => {
+    if (event?.target?.name === 'code_search') return;
+    dirty = true; generation++; schedule();
+  });
   primary.addEventListener('change', () => {
     form.querySelectorAll('[name=secondary]').forEach(el => { if (el.value === primary.value) el.checked = false; });
   });

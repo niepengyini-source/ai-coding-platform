@@ -13,13 +13,13 @@ from django.views.decorators.http import require_GET, require_POST
 
 from .models import Assignment, Code, Round, Unit
 from .views import access
-from .workflow import (annotation_events, close_quick_coding, counts, history_permissions,
+from .workflow import (annotation_events, close_quick_coding, counts, current_coding_round, history_permissions,
                        reopen_from_history, round_counts, search_history, start_quick_coding)
 from .workflow_forms import HistoryReopenForm, HistorySearchForm, QuickStartForm
 
 
 def progress_data(project, user, role, params):
-    assignments = Assignment.objects.filter(round__project=project)
+    assignments = Assignment.objects.filter(round__project=project, superseded=False)
     data = {'my': counts(assignments.filter(coder=user))}
     rows = Paginator(round_counts(project, user), 25).get_page(params.get('page'))
     data['rows'] = list(rows.object_list)
@@ -37,6 +37,14 @@ def progress_data(project, user, role, params):
         for row in data['members']:
             row['percent'] = round(row['submitted'] * 100 / row['total'], 1) if row['total'] else 0
     return data, rows, team_rows
+
+
+@require_GET
+@login_required
+def coding_entry(request, project_id):
+    project, role = access(request, project_id, ['owner', 'reviewer', 'coder'])
+    r = current_coding_round(project, request.user)
+    return redirect('workbench', r.pk) if r else redirect('quick_start', project.pk)
 
 
 @login_required
@@ -148,7 +156,7 @@ def history_context(request, project, role, a, reopen_form=None):
 
 
 def own_history_record(request, project):
-    return Assignment.objects.filter(coder=request.user, round__project=project, revision__gt=0).select_related(
+    return Assignment.objects.filter(coder=request.user, round__project=project, revision__gt=0, superseded=False).select_related(
         'round__book', 'primary', 'unit__record__document')
 
 

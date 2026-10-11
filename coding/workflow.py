@@ -6,6 +6,7 @@ from django.core.exceptions import PermissionDenied
 from django.db import transaction
 from django.db.models import Count, Q
 from django.utils import timezone
+from django.urls import reverse
 
 from .models import Assignment, AuditEvent, Codebook, Membership, Project, Round
 from .services import Conflict, annotation_data, audit, create_round
@@ -16,6 +17,24 @@ def visible_rounds(project, user, role):
     if role not in ('owner', 'reviewer'):
         rounds = rounds.filter(~Q(kind='quick') | Q(started_by=user))
     return rounds
+
+
+def current_coding_round(project, user):
+    entries = Assignment.objects.filter(round__project=project, round__state='active', coder=user,
+                                        superseded=False).select_related('round').order_by('-updated_at', '-id')
+    entry = entries.filter(status='draft').first() or entries.first()
+    return entry.round if entry else None
+
+
+def coding_assignments(r, user):
+    order = ('unit__record__document_id', 'unit__record__position', 'unit__start', 'id') if r.kind == 'quick' else ('id',)
+    return r.assignments.filter(coder=user, superseded=False).select_related('unit__record__document').order_by(*order)
+
+
+def next_coding_url(a):
+    next_entry = coding_assignments(a.round, a.coder).filter(status='draft').exclude(pk=a.pk).first()
+    return (reverse('workbench', args=[a.round_id]) + '?a=' + str(next_entry.pk) if next_entry else
+            reverse('progress', args=[a.round.project_id]))
 
 
 @transaction.atomic
@@ -55,7 +74,7 @@ def reopen_from_history(assignment_id, actor, revision, reason):
     personal = r.kind == 'quick' and r.started_by_id == actor.pk
     if membership.role not in ('owner', 'reviewer') and not (personal and membership.role == 'coder'):
         raise PermissionDenied('多人任务已提交后，需要负责人或复核者退回。')
-    if r.state != 'active' or a.status != 'submitted':
+    if r.state != 'active' or a.status != 'submitted' or a.superseded:
         raise ValueError('仅编码中已提交的记录可以退回，已归档记录不能改写。')
     if revision != a.revision:
         raise Conflict('这条记录已变化，请刷新历史页面后再操作。')
@@ -78,7 +97,8 @@ def close_quick_coding(round_id, actor, revision):
         return r
     if revision != r.revision:
         raise Conflict('编码批次状态已变化，请刷新后再归档。')
-    if r.state != 'active' or not r.assignments.exists() or r.assignments.filter(status='draft').exists():
+    live = r.assignments.filter(superseded=False)
+    if r.state != 'active' or not live.exists() or live.filter(status='draft').exists():
         raise ValueError('请先提交本批全部个人编码，再完成归档。')
     if r.assignments.exclude(coder=actor).exists() or r.decisions.exists() or r.reports.exists():
         raise ValueError('本批包含其他工作流程，不能按个人快速编码归档。')
@@ -90,6 +110,7 @@ def close_quick_coding(round_id, actor, revision):
 
 
 def counts(queryset):
+    queryset = queryset.filter(superseded=False)
     values = queryset.aggregate(total=Count('id'), submitted=Count('id', filter=Q(status='submitted')),
                                 saved=Count('id', filter=Q(status='draft', revision__gt=0)))
     values['unstarted'] = values['total'] - values['submitted'] - values['saved']
@@ -99,7 +120,7 @@ def counts(queryset):
 
 
 def round_counts(project, user):
-    return (Assignment.objects.filter(round__project=project, coder=user)
+    return (Assignment.objects.filter(round__project=project, coder=user, superseded=False)
             .values('round_id', 'round__name', 'round__kind', 'round__state', 'round__book__version')
             .annotate(total=Count('id'), submitted=Count('id', filter=Q(status='submitted')),
                       saved=Count('id', filter=Q(status='draft', revision__gt=0)))
@@ -108,7 +129,7 @@ def round_counts(project, user):
 
 def search_history(project, user, cleaned):
     # Searching a private history never adds other coders' answers to the query.
-    entries = Assignment.objects.filter(round__project=project, coder=user, revision__gt=0)
+    entries = Assignment.objects.filter(round__project=project, coder=user, revision__gt=0, superseded=False)
     query = cleaned.get('q', '')
     suffix = 'iexact' if cleaned.get('mode') == 'exact' else 'icontains'
     if query:
@@ -151,7 +172,7 @@ def search_history(project, user, cleaned):
 
 
 def history_permissions(a, user, role):
-    active = a.coder_id == user.pk and a.round.state == 'active' and role in ('owner', 'reviewer', 'coder')
+    active = not a.superseded and a.coder_id == user.pk and a.round.state == 'active' and role in ('owner', 'reviewer', 'coder')
     return {'editable': active and a.status == 'draft',
             'reopenable': active and a.status == 'submitted' and
             (role in ('owner', 'reviewer') or (a.round.kind == 'quick' and a.round.started_by_id == user.pk))}

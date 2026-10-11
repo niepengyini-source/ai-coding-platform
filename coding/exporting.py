@@ -9,7 +9,7 @@ from xml.etree import ElementTree as ET
 
 from django.http import HttpResponse
 from django.utils.http import content_disposition_header
-from .models import Unit
+from .models import Assignment, Unit
 from .services import csv_safe
 
 MAX_EXPORT_ROWS = 50000
@@ -25,6 +25,7 @@ BASE_LABELS = {
     'round_kind': '轮次类型', 'disagreement_types': '分歧类型', 'resolved': '是否已解决',
     'independent_labels_json': '独立判断JSON', 'active': '单元是否有效', 'unit_note': '单元调整说明',
     'key': '代码标识', 'name': '代码名称', 'definition': '定义', 'parent_key': '上级代码标识',
+    'assignment_id': '编码任务编号', 'parent_assignment_id': '拆分来源任务', 'superseded': '原任务已拆分',
     'include_when': '适用条件', 'exclude_when': '排除条件', 'positive_example': '正例',
     'negative_example': '反例', 'boundary_example': '边界例', 'coexist_priority': '共现与优先规则', 'color': '颜色',
 }
@@ -49,12 +50,13 @@ def annotation_table(r, queryset):
     metadata_keys = metadata_columns([a.unit for a in entries])
     headers = ['project_id', 'round_id', 'book_version', 'unit_id', 'document_id', 'record_position',
                'span_start', 'span_end', 'coder', 'unit_text', 'primary_code', 'secondary_code',
-               'uncertain', 'no_code', 'coder_note', 'status', 'revision']
+               'uncertain', 'no_code', 'coder_note', 'status', 'revision', 'assignment_id', 'parent_assignment_id', 'superseded']
     rows = []
     for a in entries:
         rows.append([r.project_id, r.id, r.book.version, a.unit_id, a.unit.record.document_id, a.unit.record.position,
                      a.unit.start, a.unit.end, a.coder.username, a.unit.text, codes.get(a.primary_id, ''),
-                     '|'.join(codes.get(c, '') for c in a.secondary), a.uncertain, a.no_code, a.note, a.status, a.revision]
+                     '|'.join(codes.get(c, '') for c in a.secondary), a.uncertain, a.no_code, a.note, a.status, a.revision,
+                     a.pk, a.parent_id or '', a.superseded]
                     + [a.unit.record.metadata.get(k, '') for k in metadata_keys]
                     + [json.dumps(a.unit.record.metadata, ensure_ascii=False)])
     return ExportTable(headers + ['meta_' + k for k in metadata_keys] + ['metadata_json'], rows, r.name)
@@ -99,6 +101,7 @@ def disagreement_table(r):
 
 def unit_table(project, include_inactive=False):
     queryset = Unit.objects.filter(record__document__project=project).select_related('record__document')
+    queryset = queryset.exclude(pk__in=Assignment.objects.filter(parent__isnull=False).values('unit_id'))
     if not include_inactive:
         queryset = queryset.filter(active=True)
     units = list(queryset.order_by('record__document_id', 'record__position', 'start', 'id')[:MAX_EXPORT_ROWS + 1])

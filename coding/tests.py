@@ -314,7 +314,7 @@ class PlatformTests(Helpers, TestCase):
         raw = 'id,custom_group,body\n1,G1,示例文字\n2,G1,\n'.encode('utf-8')
         url = f'/p/{self.project.id}/materials/'
         result = self.client.post(url, {'file': SimpleUploadedFile('custom.csv', raw)})
-        self.assertContains(result, '确认材料字段')
+        self.assertContains(result, '核对材料')
         draft = UploadDraft.objects.get()
         self.client.post(url, {'draft_id': str(draft.id), 'text_column': 'body', 'context_column': 'custom_group'})
         doc = SourceDocument.objects.get(name='custom.csv')

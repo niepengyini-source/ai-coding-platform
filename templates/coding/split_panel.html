@@ -1,0 +1,5 @@
+{% if can_split or can_suggest_split %}<details class="split-panel" data-split-panel data-mode="{% if can_split %}personal{% else %}suggestion{% endif %}" data-endpoint="{% if can_split %}{% url 'assignment_split' assignment.id %}{% else %}{% url 'split_suggestion' assignment.id %}{% endif %}">
+<summary>{% if can_split %}这句话包含多个意思？拆分后编码{% else %}提出拆分建议{% endif %}</summary><p class="hint">在上方原文中选中第一段文字，再预览。{% if can_suggest_split %}负责人核对后用于后续任务，当前多人任务不变。{% endif %}</p>
+<button class="button secondary" type="button" data-split-preview>预览两段</button>
+<div data-split-parts hidden><h3>第一段</h3><pre data-split-first></pre><h3>第二段</h3><pre data-split-second></pre>{% if can_suggest_split %}<label for="split-reason">拆分理由</label><textarea id="split-reason" name="split_reason" rows="2" maxlength="2000"></textarea>{% endif %}<button class="button" type="button" data-split-confirm disabled>{% if can_split %}确认拆分，编码新单元{% else %}发送建议{% endif %}</button></div>
+<p class="hint" data-split-status role="status" aria-live="polite"></p></details>{% endif %}

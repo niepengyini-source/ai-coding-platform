@@ -20,7 +20,7 @@ def disagreement_rows(round_obj):
     roots = top_level_ids(codes)
     has_hierarchy = any(code.parent_id for code in codes)
     groups = defaultdict(list)
-    for assignment in round_obj.assignments.select_related('unit__record__document', 'coder', 'primary').order_by('unit_id', 'coder_id'):
+    for assignment in round_obj.assignments.filter(superseded=False).select_related('unit__record__document', 'coder', 'primary').order_by('unit_id', 'coder_id'):
         groups[assignment.unit_id].append(assignment)
     decisions = {decision.unit_id: decision for decision in round_obj.decisions.filter(cycle=round_obj.cycle)}
     rows = []

@@ -10,7 +10,50 @@ MAX_BYTES = 8 * 1024 * 1024
 MAX_ROWS = 10000
 
 
-def parse_upload(filename, raw):
+def excel_workbook(raw):
+    from openpyxl import load_workbook
+    from openpyxl.utils.exceptions import InvalidFileException
+    if len(raw) > MAX_BYTES:
+        raise ValueError('单个文件最大8MB，请按材料批次拆分。')
+    try:
+        with zipfile.ZipFile(io.BytesIO(raw)) as archive:
+            entries = archive.infolist()
+            if len(entries) > 200 or sum(i.file_size for i in entries) > 40 * 1024 * 1024:
+                raise ValueError('Excel解压后过大，请拆分文件。')
+            for entry in entries:
+                if entry.filename.lower().endswith(('.xml', '.rels')):
+                    for _, element in safe_iterparse(io.BytesIO(archive.read(entry)), events=('end',),
+                                                     forbid_dtd=True, forbid_entities=True, forbid_external=True):
+                        element.clear()
+        return load_workbook(io.BytesIO(raw), read_only=True, data_only=False)
+    except (zipfile.BadZipFile, KeyError, OSError, TypeError, IndexError,
+            ParseError, DefusedXmlException, InvalidFileException) as error:
+        raise ValueError('Excel文件损坏或不支持，请另存为.xlsx或CSV。') from error
+
+
+def material_sheets(filename, raw):
+    if Path(filename).suffix.lower() != '.xlsx':
+        return []
+    workbook = excel_workbook(raw)
+    try:
+        return workbook.sheetnames
+    finally:
+        workbook.close()
+
+
+def suggested_columns(headers):
+    """Only unambiguous known headings are selected; never guess from cell contents."""
+    text_aliases = {'text', 'content', 'unittext', 'messagetext', 'messagecontent', 'utterance',
+                    '文本', '内容', '对话内容', '发言内容', '原文'}
+    context_aliases = {'conversationid', 'roomid', 'interviewid', 'sessionid', '对话编号',
+                       '访谈编号', '房间编号', '会话编号'}
+    def match(aliases):
+        candidates = [h for h in headers if ''.join(c for c in h.casefold() if c.isalnum()) in aliases]
+        return candidates[0] if len(candidates) == 1 else ''
+    return match(text_aliases), match(context_aliases)
+
+
+def parse_upload(filename, raw, sheet_name=None):
     if len(raw) > MAX_BYTES:
         raise ValueError('单个文件最大8MB，请按材料批次拆分。')
     suffix = Path(filename).suffix.lower()
@@ -45,25 +88,13 @@ def parse_upload(filename, raw):
             except csv.Error as error:
                 raise ValueError('CSV格式错误或单个单元格过长。') from error
     elif suffix == '.xlsx':
-        from openpyxl import load_workbook
         from openpyxl.utils.exceptions import InvalidFileException
         wb = None
         try:
-            with zipfile.ZipFile(io.BytesIO(raw)) as archive:
-                entries = archive.infolist()
-                if len(entries) > 200 or sum(i.file_size for i in entries) > 40 * 1024 * 1024:
-                    raise ValueError('Excel解压后过大，请拆分文件。')
-                # Validate every XML part before openpyxl, even if lxml is installed later.
-                # Never resolve entities, DTDs or external documents from an upload.
-                for entry in entries:
-                    if entry.filename.lower().endswith(('.xml', '.rels')):
-                        for _, element in safe_iterparse(io.BytesIO(archive.read(entry)), events=('end',),
-                                                         forbid_dtd=True, forbid_entities=True, forbid_external=True):
-                            element.clear()
-            wb = load_workbook(io.BytesIO(raw), read_only=True, data_only=False)
-            if len(wb.worksheets) != 1:
-                raise ValueError('请将需要导入的工作表单独保存为一个文件。')
-            sheet = wb.active
+            wb = excel_workbook(raw)
+            if sheet_name and sheet_name not in wb.sheetnames:
+                raise ValueError('所选工作表不存在，请重新选择。')
+            sheet = wb[sheet_name] if sheet_name else wb.worksheets[0]
             if sheet.max_column > 100 or sheet.max_row > MAX_ROWS + 1:
                 raise ValueError('工作表超过100列或10000条记录，请只复制实际材料到新工作表。')
             iterator = sheet.iter_rows(values_only=True)

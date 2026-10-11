@@ -66,13 +66,13 @@ def validate_labels(book, data, submitting=True):
 
 
 @transaction.atomic
-def import_records(project, actor, draft, rows, text_column, context_column):
+def import_records(project, actor, draft, rows, text_column, context_column, sheet_name=''):
     Project.objects.select_for_update().get(pk=project.pk)
     digest = hashlib.sha256(bytes(draft.raw)).hexdigest()
-    if SourceDocument.objects.filter(project=project, sha256=digest).exists():
+    if SourceDocument.objects.filter(project=project, sha256=digest, sheet_name__in=['', sheet_name]).exists():
         raise ValueError('该文件已导入，未重复增加记录。')
     doc = SourceDocument.objects.create(project=project, name=Path(draft.filename).name,
-        raw=draft.raw, sha256=digest, text_column=text_column, context_column=context_column,
+        raw=draft.raw, sha256=digest, text_column=text_column, context_column=context_column, sheet_name=sheet_name,
         import_note='保留原始文件字节和所有原始列；空白文本不生成编码单元；不自动删除重复文字。')
     records = []
     for pos, row in enumerate(rows, 1):
@@ -86,7 +86,8 @@ def import_records(project, actor, draft, rows, text_column, context_column):
     SourceRecord.objects.bulk_create(records)
     Unit.objects.bulk_create([Unit(record=r, text=r.text, start=0, end=len(r.text)) for r in records if r.text.strip()])
     audit(project, actor, 'import', doc, after={'records': len(records), 'units': sum(bool(r.text.strip()) for r in records),
-                                              'text_column': text_column, 'context_column': context_column})
+                                              'text_column': text_column, 'context_column': context_column,
+                                              'sheet_name': sheet_name})
     return doc
 
 
@@ -183,6 +184,8 @@ def save_assignment(assignment_id, actor, data):
     ref = Assignment.objects.only('round_id').get(pk=assignment_id, coder=actor)
     r = Round.objects.select_for_update().get(pk=ref.round_id)
     a = Assignment.objects.select_for_update().get(pk=assignment_id, coder=actor)
+    if a.superseded:
+        raise Conflict('原任务已拆分，请在新单元上编码；原记录保留但不能覆盖。')
     token = str(data.get('token', ''))
     if not 8 <= len(token) <= 64:
         raise ValueError('缺少有效保存标识，请刷新页面重试。')
@@ -272,7 +275,8 @@ def project_archive(project):
         extension = Path(doc.name).suffix.lower()
         files[f'00_raw/document_{doc.id}{extension}'] = bytes(doc.raw)
         add_json(f'00_raw/document_{doc.id}_manifest.json', {'original_name': doc.name, 'sha256': doc.sha256,
-                 'text_column': doc.text_column, 'context_column': doc.context_column, 'cleaning_note': doc.import_note})
+                 'text_column': doc.text_column, 'context_column': doc.context_column,
+                 'sheet_name': doc.sheet_name, 'cleaning_note': doc.import_note})
     add_json('01_units/records.json', list(SourceRecord.objects.filter(document__project=project).values()))
     add_json('01_units/units.json', list(Unit.objects.filter(record__document__project=project).values()))
     for book in project.codebooks.all():

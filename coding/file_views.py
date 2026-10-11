@@ -198,14 +198,14 @@ def export_table_for(request, project, role, params):
     if r.kind == 'quick' and r.started_by_id != request.user.pk and role not in ('owner', 'reviewer'):
         raise Http404
     if target == 'mine':
-        if r.assignments.filter(coder=request.user).count() > MAX_EXPORT_ROWS:
+        if r.assignments.filter(coder=request.user, superseded=False).count() > MAX_EXPORT_ROWS:
             raise ValueError('一次最多导出50000行，请按轮次分批导出。')
-        return annotation_table(r, r.assignments.filter(coder=request.user)), None, r
+        return annotation_table(r, r.assignments.filter(coder=request.user, superseded=False)), None, r
     if target in ('all', 'disagreements'):
         review_access(request, r, role)
         if r.assignments.count() > MAX_EXPORT_ROWS:
             raise ValueError('本轮独立判断超过50000行，请选择“我的独立编码”分别导出，或按更小的轮次分批。')
-        return (annotation_table(r, r.assignments.all()) if target == 'all' else disagreement_table(r)), None, r
+        return (annotation_table(r, r.assignments.filter(superseded=False)) if target == 'all' else disagreement_table(r)), None, r
     if r.state != 'closed' or r.kind == 'quick':
         raise PermissionDenied('最终定稿需先完成协商并归档。')
     if r.decisions.filter(cycle=r.cycle).count() > MAX_EXPORT_ROWS:

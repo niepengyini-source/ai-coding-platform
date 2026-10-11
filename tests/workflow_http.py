@@ -97,7 +97,7 @@ status, _, _ = request(quick_url, start, csrf=False)
 check('quick_start_csrf', status == 403 and not Round.objects.filter(project=project).exists())
 status, page, url = request(quick_url, start)
 r = Round.objects.get(project=project, kind='quick')
-check('quick_start_self_only', status == 200 and f'/r/{r.pk}/' in url and '这是个人快速编码' in page
+check('quick_start_self_only', status == 200 and f'/r/{r.pk}/' in url and '个人快速编码' in page
       and r.started_by_id == coder.pk and r.assignments.count() == 2
       and not r.assignments.exclude(coder=coder).exists())
 book.refresh_from_db()

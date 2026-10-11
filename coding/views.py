@@ -15,14 +15,15 @@ from django.utils import timezone
 from django.views.decorators.http import require_POST
 from .models import *
 from .forms import ProjectForm, MemberForm, BookForm, CodeForm
-from .importing import parse_upload
+from .importing import parse_upload, material_sheets, suggested_columns
 from .services import (Conflict, audit, annotation_data, import_records, clone_book, create_round,
                        save_assignment, save_decision, export_annotations, export_final, export_disagreements, project_archive)
 from .reliability import report_for
 from .reviewing import disagreement_rows
 from .account_forms import InvitationForm, JoinReviewForm
 from .group_services import mark_approved
-from .workflow import visible_rounds
+from .workflow import visible_rounds, current_coding_round, coding_assignments, next_coding_url
+from .splitting import split_personal, suggest_split
 
 
 def access(request, project_id, roles=None):
@@ -136,6 +137,7 @@ def project_view(request, project_id):
                     messages.success(request, '项目说明已保存。')
                     return redirect('project', project.id)
     return render(request, 'coding/project.html', {'project': project, 'role': role, 'form': form,
+        'coding_round': current_coding_round(project, request.user),
         'unit_count': Unit.objects.filter(record__document__project=project, active=True).count(),
         'rounds': visible_rounds(project, request.user, role).select_related('book', 'started_by').order_by('-id')})
 
@@ -193,25 +195,47 @@ def materials(request, project_id):
                 except ValueError:
                     raise Http404
                 draft = get_object_or_404(UploadDraft, pk=draft_id, project=project, user=request.user)
-                headers, rows = parse_upload(draft.filename, bytes(draft.raw))
+            else:
+                upload = request.FILES.get('file')
+                if not upload:
+                    raise ValueError('请选择文件。')
+                if upload.size > 8 * 1024 * 1024:
+                    raise ValueError('单个文件最大8MB。')
+                raw = upload.read()
+                # Validate the file before retaining it; an empty Excel cover can be changed below.
+                sheets = material_sheets(upload.name, raw)
+                if not sheets:
+                    parse_upload(upload.name, raw)
+                draft = UploadDraft.objects.create(project=project, user=request.user, filename=Path(upload.name).name[:200], raw=raw)
+            sheets = material_sheets(draft.filename, bytes(draft.raw))
+            sheet = request.POST.get('sheet_name', '') or (sheets[0] if sheets else '')
+            if sheet and sheet not in sheets:
+                raise ValueError('所选工作表不存在，请重新选择。')
+            preview_error = None
+            try:
+                headers, rows = parse_upload(draft.filename, bytes(draft.raw), sheet_name=sheet)
+            except ValueError as exc:
+                if not sheets or (request.POST.get('draft_id') and request.POST.get('action') != 'preview'):
+                    raise
+                headers, rows, preview_error = [], [], str(exc)
+            if request.POST.get('draft_id') and request.POST.get('action') != 'preview':
                 text_col, context_col = request.POST.get('text_column', ''), request.POST.get('context_column', '')
-                if text_col not in headers or (context_col and (context_col not in headers or context_col == text_col)):
-                    raise ValueError('请选择有效且不同的文本列和上下文分组列。')
-                import_records(project, request.user, draft, rows, text_col, context_col)
-                messages.success(request, '导入完成。原始文件与附加列均已保留；空白文本不生成单元。')
-                return redirect('units', project.id)
-            upload = request.FILES.get('file')
-            if not upload:
-                raise ValueError('请选择文件。')
-            if upload.size > 8 * 1024 * 1024:
-                raise ValueError('单个文件最大8MB。')
-            raw = upload.read()
-            headers, rows = parse_upload(upload.name, raw)
-            draft = UploadDraft.objects.create(project=project, user=request.user, filename=Path(upload.name).name[:200], raw=raw)
-            default = next((h for h in ['content', 'unit_text', 'text'] if h in headers), headers[0])
+                try:
+                    if text_col not in headers or (context_col and (context_col not in headers or context_col == text_col)):
+                        raise ValueError('请选择有效且不同的文本列和上下文分组列。')
+                    import_records(project, request.user, draft, rows, text_col, context_col, sheet)
+                    messages.success(request, '材料已导入。')
+                    return redirect('units', project.id)
+                except (ValueError, OperationalError) as exc:
+                    preview_error = str(exc) if not isinstance(exc, OperationalError) else '数据库忙，未确认导入成功，请稍后重试。'
+            default, context = suggested_columns(headers)
+            if request.POST.get('draft_id') and request.POST.get('action') != 'preview':
+                default = text_col if text_col in headers else ''
+                context = context_col if context_col in headers else ''
             return render(request, 'coding/import_preview.html', {'project': project, 'role': role,
                 'draft': draft, 'headers': headers, 'preview': [[row.get(h, '')[:200] for h in headers] for row in rows[:5]],
-                'row_count': len(rows), 'default_text': default})
+                'row_count': len(rows), 'default_text': default, 'default_context': context,
+                'sheet_names': sheets, 'sheet_name': sheet, 'error': preview_error})
         except (ValueError, TypeError, OperationalError) as exc:
             error = str(exc) if not isinstance(exc, OperationalError) else '数据库忙，请稍后重试；没有确认导入成功。'
     return render(request, 'coding/materials.html', {'project': project, 'role': role, 'error': error,
@@ -226,7 +250,14 @@ def units(request, project_id):
     if query:
         queryset = queryset.filter(text__icontains=query)
     page = Paginator(queryset, 30).get_page(request.GET.get('page'))
-    return render(request, 'coding/units.html', {'project': project, 'role': role, 'page': page, 'q': query})
+    suggestions = []
+    if role in ('owner', 'reviewer'):
+        recent = list(AuditEvent.objects.filter(project=project, action='unit.split_suggest')
+                      .select_related('actor').order_by('-id')[:50])
+        valid_ids = set(queryset.filter(pk__in=[e.after.get('unit_id') for e in recent]).values_list('id', flat=True))
+        suggestions = [e for e in recent if e.after.get('unit_id') in valid_ids]
+    return render(request, 'coding/units.html', {'project': project, 'role': role, 'page': page, 'q': query,
+                                               'split_suggestions': suggestions})
 
 
 @require_POST
@@ -392,17 +423,24 @@ def round_new(request, project_id):
 @login_required
 def workbench(request, round_id):
     r, role = round_access(request, round_id)
-    mine = r.assignments.filter(coder=request.user).select_related('unit__record__document').order_by('id')
+    mine = coding_assignments(r, request.user)
     paginator = Paginator(mine, 50)
     if request.GET.get('a'):
-        a = get_object_or_404(mine, pk=object_id(request.GET['a']))
+        selected_id = object_id(request.GET['a'])
+        if r.assignments.filter(pk=selected_id, coder=request.user, superseded=True).exists():
+            messages.info(request, '原任务已拆分，请继续编码新单元。')
+            return redirect('workbench', r.pk)
+        a = get_object_or_404(mine, pk=selected_id)
     elif request.GET.get('page'):
         requested_page = paginator.get_page(request.GET['page'])
         page_ids = [item.id for item in requested_page]
         a = mine.filter(id__in=page_ids, status='draft').first() or mine.filter(id__in=page_ids).first()
     else:
-        a = mine.filter(status='draft').first() or mine.first()
-    task_page = paginator.get_page(mine.filter(id__lt=a.id).count() // 50 + 1 if a else 1)
+        a = (mine.filter(status='draft', revision__gt=0).order_by('-updated_at', '-id').first()
+             or mine.filter(status='draft').first() or mine.first())
+    ids = list(mine.values_list('id', flat=True))
+    index = ids.index(a.pk) if a else 0
+    task_page = paginator.get_page(index // 50 + 1)
     context = []
     if a:
         rec = a.unit.record
@@ -411,23 +449,54 @@ def workbench(request, round_id):
     return render(request, 'coding/workbench.html', {'project': r.project, 'role': role, 'round': r,
         'assignment': a, 'annotation': annotation_data(a) if a else {}, 'codes': codes, 'context': context,
         'annotation_locked': role == 'viewer' or r.state != 'active' or (a is not None and a.status == 'submitted'),
+        'next_url': next_coding_url(a) if a else '',
+        'can_split': a is not None and r.kind == 'quick' and r.started_by_id == request.user.pk
+                     and r.state == 'active' and a.status == 'draft' and a.revision == 0 and role != 'viewer',
+        'can_suggest_split': a is not None and r.kind != 'quick' and r.state == 'active' and role != 'viewer',
         'tasks': task_page,
-        'previous_task': mine.filter(id__lt=a.id).order_by('-id').first() if a else None,
-        'next_task': mine.filter(id__gt=a.id).first() if a else None,
+        'previous_task': mine.get(pk=ids[index - 1]) if a and index else None,
+        'next_task': mine.get(pk=ids[index + 1]) if a and index + 1 < len(ids) else None,
         'next_draft': mine.filter(status='draft').exclude(pk=a.pk).first() if a else None,
         'mine_total': mine.count(), 'mine_done': mine.filter(status='submitted').count(),
         'can_review': r.state != 'active' or r.kind == 'training',
         'submitted_tasks': list(r.assignments.filter(status='submitted').values('id', 'coder__username', 'unit_id', 'revision')[:50])
                            if role in ('owner', 'reviewer') and r.state == 'active' else [],
-        'total': r.assignments.count(), 'total_done': r.assignments.filter(status='submitted').count()})
+        'total': r.assignments.filter(superseded=False).count(),
+        'total_done': r.assignments.filter(status='submitted', superseded=False).count()})
 
 
 @login_required
 def round_progress(request, round_id):
     r, role = round_access(request, round_id)
-    mine = r.assignments.filter(coder=request.user)
+    mine = r.assignments.filter(coder=request.user, superseded=False)
     return JsonResponse({'state': r.state, 'my_total': mine.count(), 'my_done': mine.filter(status='submitted').count(),
-                         'total': r.assignments.count(), 'done': r.assignments.filter(status='submitted').count()})
+                         'total': r.assignments.filter(superseded=False).count(),
+                         'done': r.assignments.filter(status='submitted', superseded=False).count()})
+
+
+@require_POST
+@login_required
+def assignment_split(request, assignment_id):
+    a = get_object_or_404(Assignment.objects.select_related('round'), pk=assignment_id, coder=request.user)
+    access(request, a.round.project_id, ['owner', 'reviewer', 'coder'])
+    try:
+        split_personal(a.pk, request.user, body_json(request))
+        child = coding_assignments(a.round, request.user).filter(parent=a).first()
+        return JsonResponse({'ok': True, 'next_url': f'/r/{a.round_id}/' + (f'?a={child.pk}' if child else '')})
+    except (ValueError, OperationalError) as error:
+        return api_error(error)
+
+
+@require_POST
+@login_required
+def split_suggestion(request, assignment_id):
+    a = get_object_or_404(Assignment.objects.select_related('round'), pk=assignment_id, coder=request.user)
+    access(request, a.round.project_id, ['owner', 'reviewer', 'coder'])
+    try:
+        suggest_split(a.pk, request.user, body_json(request))
+        return JsonResponse({'ok': True, 'message': '建议已交给负责人。当前多人任务和已有答案不改变。'})
+    except (ValueError, OperationalError) as error:
+        return api_error(error)
 
 
 @require_POST
@@ -437,7 +506,8 @@ def assignment_save(request, assignment_id):
     access(request, a.round.project_id, ['owner', 'reviewer', 'coder'])
     try:
         saved = save_assignment(a.id, request.user, body_json(request))
-        return JsonResponse({'ok': True, 'annotation': annotation_data(saved)})
+        return JsonResponse({'ok': True, 'annotation': annotation_data(saved),
+                             'next_url': next_coding_url(saved) if saved.status == 'submitted' else ''})
     except (ValueError, OperationalError) as error:
         return api_error(error)
 
@@ -613,14 +683,14 @@ def export_round(request, round_id, mode):
     from .exporting import annotation_table, final_table, disagreement_table, export_response, MAX_EXPORT_ROWS
     r, role = round_access(request, round_id)
     if mode == 'mine':
-        if r.assignments.filter(coder=request.user).count() > MAX_EXPORT_ROWS:
+        if r.assignments.filter(coder=request.user, superseded=False).count() > MAX_EXPORT_ROWS:
             return HttpResponse('一次最多导出50000行，请按轮次分批。', status=400)
-        table = annotation_table(r, r.assignments.filter(coder=request.user))
+        table = annotation_table(r, r.assignments.filter(coder=request.user, superseded=False))
     elif mode == 'all':
         review_access(request, r, role)
         if r.assignments.count() > MAX_EXPORT_ROWS:
             return HttpResponse('本轮超过50000条判断，请按编码员分别导出。', status=400)
-        table = annotation_table(r, r.assignments.all())
+        table = annotation_table(r, r.assignments.filter(superseded=False))
     elif mode == 'final':
         if r.kind == 'quick':
             raise PermissionDenied('个人快速编码没有多人协商定稿，请导出个人判断。')
