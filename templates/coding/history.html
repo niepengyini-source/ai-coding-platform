@@ -1,6 +1,6 @@
 {% extends 'base.html' %}
 {% block content %}
-<div class="page-heading heading-row"><div><div class="eyebrow">只显示你保存过的编码</div><h1>我的编码历史</h1><p>按最后保存时间筛选当前记录。查看“修改历史”可追溯每次保存时的旧答案；不会显示其他成员的个人判断。</p></div><a class="button secondary" href="{% url 'progress' project.id %}">查看进度</a></div>
+<div class="page-heading heading-row"><div><h1>我的编码历史</h1><p>按最后保存时间筛选当前记录。查看“修改历史”可追溯每次保存时的旧答案；不会显示其他成员的个人判断。</p></div><a class="button secondary" href="{% url 'progress' project.id %}">查看进度</a></div>
 <section class="card"><form method="get" class="history-search">{{ form.non_field_errors }}
 <div class="history-search-line"><p>{{ form.mode.label_tag }}{{ form.mode.errors }}{{ form.mode }}</p><p>{{ form.q.label_tag }}{{ form.q.errors }}{{ form.q }}</p><button class="button" type="submit">搜索</button></div>
 <p class="hint">快速搜索查包含关键词的内容；精确搜索查完整原文、备注、主代码、文件名或批次名。纯数字也可查单元 / 编码记录编号。</p>

@@ -17,13 +17,14 @@ from .models import *
 from .forms import ProjectForm, MemberForm, BookForm, CodeForm
 from .importing import parse_upload, material_sheets, suggested_columns
 from .services import (Conflict, audit, annotation_data, import_records, clone_book, create_round,
-                       save_assignment, save_decision, export_annotations, export_final, export_disagreements, project_archive)
+                       save_assignment, save_decision, export_annotations, export_final, export_disagreements)
 from .reliability import report_for
 from .reviewing import disagreement_rows
 from .account_forms import InvitationForm, JoinReviewForm
 from .group_services import mark_approved
 from .workflow import visible_rounds, current_coding_round, coding_assignments, next_coding_url
 from .splitting import split_personal, suggest_split
+from .context import context_page
 
 
 def access(request, project_id, roles=None):
@@ -442,27 +443,53 @@ def workbench(request, round_id):
     index = ids.index(a.pk) if a else 0
     task_page = paginator.get_page(index // 50 + 1)
     context = []
+    context_options = {}
     if a:
         rec = a.unit.record
-        context = context_records(rec)
+        before, more_before, before_cursor = context_page(rec, 'before', size=2)
+        after, more_after, after_cursor = context_page(rec, 'after', size=2)
+        context = before + [rec] + after
+        context_options = {'context_before': before, 'context_after': after,
+            'more_before': more_before, 'more_after': more_after,
+            'before_cursor': before_cursor, 'after_cursor': after_cursor}
     codes = list(r.book.codes.all())
     return render(request, 'coding/workbench.html', {'project': r.project, 'role': role, 'round': r,
         'assignment': a, 'annotation': annotation_data(a) if a else {}, 'codes': codes, 'context': context,
+        **context_options,
         'annotation_locked': role == 'viewer' or r.state != 'active' or (a is not None and a.status == 'submitted'),
         'next_url': next_coding_url(a) if a else '',
-        'can_split': a is not None and r.kind == 'quick' and r.started_by_id == request.user.pk
-                     and r.state == 'active' and a.status == 'draft' and a.revision == 0 and role != 'viewer',
-        'can_suggest_split': a is not None and r.kind != 'quick' and r.state == 'active' and role != 'viewer',
+        'can_split': a is not None and r.state == 'active' and role != 'viewer',
+        'can_suggest_split': False,
         'tasks': task_page,
         'previous_task': mine.get(pk=ids[index - 1]) if a and index else None,
         'next_task': mine.get(pk=ids[index + 1]) if a and index + 1 < len(ids) else None,
         'next_draft': mine.filter(status='draft').exclude(pk=a.pk).first() if a else None,
         'mine_total': mine.count(), 'mine_done': mine.filter(status='submitted').count(),
         'can_review': r.state != 'active' or r.kind == 'training',
-        'submitted_tasks': list(r.assignments.filter(status='submitted').values('id', 'coder__username', 'unit_id', 'revision')[:50])
+        'submitted_tasks': list(r.assignments.filter(status='submitted', superseded=False).values('id', 'coder__username', 'unit_id', 'revision')[:50])
                            if role in ('owner', 'reviewer') and r.state == 'active' else [],
         'total': r.assignments.filter(superseded=False).count(),
         'total_done': r.assignments.filter(status='submitted', superseded=False).count()})
+
+
+@login_required
+def assignment_context(request, assignment_id):
+    if request.method != 'GET':
+        return HttpResponse(status=405)
+    a = get_object_or_404(Assignment.objects.select_related('unit__record', 'round'),
+                         pk=assignment_id, coder=request.user, superseded=False)
+    access(request, a.round.project_id)
+    try:
+        raw_cursor = request.GET.get('cursor', '')
+        if not raw_cursor.isascii() or not raw_cursor.isdigit() or len(raw_cursor) > 18:
+            raise ValueError('上下文位置不正确，请刷新后重试。')
+        items, more, cursor = context_page(a.unit.record, request.GET.get('direction'), int(raw_cursor))
+        response = JsonResponse({'records': [{'id': rec.pk, 'position': rec.position, 'text': rec.text,
+            'context_key': rec.context_key} for rec in items], 'has_more': more, 'cursor': cursor})
+        response['Cache-Control'] = 'no-store'
+        return response
+    except ValueError as error:
+        return api_error(error)
 
 
 @login_required
@@ -480,8 +507,11 @@ def assignment_split(request, assignment_id):
     a = get_object_or_404(Assignment.objects.select_related('round'), pk=assignment_id, coder=request.user)
     access(request, a.round.project_id, ['owner', 'reviewer', 'coder'])
     try:
-        split_personal(a.pk, request.user, body_json(request))
-        child = coding_assignments(a.round, request.user).filter(parent=a).first()
+        data = body_json(request)
+        split_personal(a.pk, request.user, data)
+        children = list(coding_assignments(a.round, request.user).filter(parent=a).order_by('unit__start'))
+        position = a.unit.start + data.get('start', 0)
+        child = next((c for c in children if c.unit.start <= position < c.unit.end), children[0] if children else None)
         return JsonResponse({'ok': True, 'next_url': f'/r/{a.round_id}/' + (f'?a={child.pk}' if child else '')})
     except (ValueError, OperationalError) as error:
         return api_error(error)
@@ -526,18 +556,18 @@ def round_manage(request, round_id):
             action, reason = request.POST.get('action'), request.POST.get('reason', '').strip()[:2000]
             old = {'state': r.state, 'cycle': r.cycle}
             if action == 'lock':
-                if r.state != 'active' or r.assignments.filter(status='draft').exists():
+                if r.state != 'active' or r.assignments.filter(status='draft', superseded=False).exists():
                     raise ValueError('必须全部独立提交后才能进入协商；未完成任务可在各自工作台标记不确定并写原因。')
                 r.state = 'review'
             elif action == 'reopen':
                 if r.state != 'review' or not reason:
                     raise ValueError('仅协商中的轮次可重开，且必须说明理由；归档轮次不改写。')
                 r.state, r.cycle = 'active', r.cycle + 1
-                r.assignments.update(status='draft', last_token='', revision=F('revision') + 1)
+                r.assignments.filter(superseded=False).update(status='draft', last_token='', revision=F('revision') + 1)
                 # Previously visible answers cannot become blind again.
                 # Keep the round labelled re-opened; a NEW round is required for new independent reliability.
             elif action == 'close':
-                unit_ids = set(r.assignments.values_list('unit_id', flat=True))
+                unit_ids = set(r.assignments.filter(superseded=False).values_list('unit_id', flat=True))
                 valid = set(r.decisions.filter(cycle=r.cycle, uncertain=False).values_list('unit_id', flat=True))
                 if r.state != 'review' or unit_ids != valid:
                     raise ValueError('每个单元都需要本轮有效的、非待裁定的最终结论才能归档。')
@@ -563,7 +593,7 @@ def assignment_reopen(request, assignment_id):
             r = Round.objects.select_for_update().get(pk=a.round_id)
             a = Assignment.objects.select_for_update().get(pk=a.pk)
             reason = request.POST.get('reason', '').strip()[:2000]
-            if r.state != 'active' or a.status != 'submitted' or not reason:
+            if r.state != 'active' or a.status != 'submitted' or a.superseded or not reason:
                 raise ValueError('仅编码阶段已提交的任务可退回，并需说明理由。')
             if request.POST.get('revision') != str(a.revision):
                 raise Conflict('任务状态已变化，请刷新。')
@@ -581,7 +611,7 @@ def assignment_reopen(request, assignment_id):
 def review(request, round_id):
     r, role = round_access(request, round_id)
     review_access(request, r, role)
-    ids = list(r.assignments.values_list('unit_id', flat=True).distinct().order_by('unit_id'))
+    ids = list(r.assignments.filter(superseded=False).values_list('unit_id', flat=True).distinct().order_by('unit_id'))
     selected_page = request.GET.get('page')
     if request.GET.get('unit'):
         selected_id = object_id(request.GET['unit'])
@@ -590,7 +620,7 @@ def review(request, round_id):
         selected_page = ids.index(selected_id) + 1
     page = Paginator(ids, 1).get_page(selected_page)
     unit = get_object_or_404(Unit.objects.select_related('record__document'), pk=page.object_list[0]) if ids else None
-    entries = r.assignments.filter(unit=unit).select_related('coder', 'primary')
+    entries = r.assignments.filter(unit=unit, superseded=False).select_related('coder', 'primary')
     decision = Decision.objects.filter(round=r, unit=unit).first()
     codes = list(r.book.codes.all())
     keys = {c.id: c.key for c in codes}
@@ -626,7 +656,7 @@ def disagreement_queue(request, round_id):
 def decision_save(request, round_id, unit_id):
     r, role = round_access(request, round_id, ['owner', 'reviewer'])
     review_access(request, r, role)
-    unit = get_object_or_404(Unit.objects.distinct(), pk=unit_id, assignment__round=r)
+    unit = get_object_or_404(Unit.objects.distinct(), pk=unit_id, assignment__round=r, assignment__superseded=False)
     try:
         saved = save_decision(r, unit, request.user, body_json(request))
         return JsonResponse({'ok': True, 'annotation': annotation_data(saved)})
@@ -639,7 +669,7 @@ def decision_save(request, round_id, unit_id):
 def comment_add(request, round_id, unit_id):
     r, role = round_access(request, round_id, ['owner', 'reviewer', 'coder'])
     review_access(request, r, role)
-    unit = get_object_or_404(Unit.objects.distinct(), pk=unit_id, assignment__round=r)
+    unit = get_object_or_404(Unit.objects.distinct(), pk=unit_id, assignment__round=r, assignment__superseded=False)
     text = request.POST.get('body', '').strip()
     if r.state == 'closed' or not 1 <= len(text) <= 5000:
         messages.error(request, '归档轮次不增加评论；评论需1至5000字符。')
@@ -715,16 +745,8 @@ def export_round(request, round_id, mode):
 
 @login_required
 def archive(request, project_id):
-    project, role = access(request, project_id, ['owner', 'reviewer'])
-    with transaction.atomic():
-        project = Project.objects.select_for_update().get(pk=project.id)
-        if not project.rounds.exists() or project.rounds.exclude(state='closed').exists():
-            messages.error(request, '完整项目归档要求所有轮次都已定稿，避免泄露独立编码中的答案。')
-            return redirect('project', project.id)
-        data = project_archive(project)
-    response = HttpResponse(data, content_type='application/zip')
-    response['Content-Disposition'] = f'attachment; filename="project_{project.id}_archive.zip"'
-    return response
+    from .archiving import archive as archive_page
+    return archive_page(request, project_id)
 
 
 @login_required

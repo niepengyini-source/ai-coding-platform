@@ -1,6 +1,6 @@
 {% extends 'base.html' %}
 {% block content %}
-<div class="page-heading"><div class="eyebrow">检查预览 · 尚未写入编码本</div><h1>确认导入结果</h1><p>{{ draft.filename }} · 共{{ preview.codes|length }}条编码。核对名称、定义和例子，再确认导入。</p></div>
+<div class="page-heading"><h1>确认导入结果</h1><p>{{ draft.filename }} · 共{{ preview.codes|length }}条编码。核对名称、定义和例子，再确认导入。</p></div>
 <ol class="import-steps" aria-label="编码本导入步骤"><li>1 · 上传文件</li><li aria-current="step">2 · 检查结果</li><li>3 · 确认导入</li></ol>
 {% if error %}<div class="notice danger" role="alert">{{ error }}</div>{% endif %}
 <section class="card"><h2>{% if preview.automatic %}已自动整理，请核对{% else %}已完成字段对应，请核对{% endif %}</h2>

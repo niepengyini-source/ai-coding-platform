@@ -156,7 +156,7 @@ def history_context(request, project, role, a, reopen_form=None):
 
 
 def own_history_record(request, project):
-    return Assignment.objects.filter(coder=request.user, round__project=project, revision__gt=0, superseded=False).select_related(
+    return Assignment.objects.filter(coder=request.user, round__project=project, revision__gt=0).select_related(
         'round__book', 'primary', 'unit__record__document')
 
 

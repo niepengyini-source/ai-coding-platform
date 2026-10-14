@@ -8,31 +8,37 @@ const source = fs.readFileSync(path.join(__dirname, '../static/app.js'), 'utf8')
 
 function setup(fetchImplementation, initial = {}, mode = 'annotation', nextUrl = '/r/1/?a=2') {
   const listeners = {}, windowListeners = {}, timers = new Map();
-  const fields = Object.fromEntries(['primary','note','no_code','uncertain','csrfmiddlewaretoken'].map(name => [name, {value:'',checked:false,disabled:false,addEventListener(){}}]));
+  const fields = Object.fromEntries(['primary','note','no_code','uncertain','csrfmiddlewaretoken'].map(name => [name, {name,value:'',checked:false,disabled:false,handlers:{},addEventListener(type,fn){this.handlers[type]=fn;},dispatchEvent(event){this.handlers[event.type]?.({...event,target:this});listeners[event.type]?.({target:this});}}]));
   fields.csrfmiddlewaretoken.value = 'test-token';
-  const secondary = [{value:'2',checked:false,disabled:false}];
+  const secondary = ['2','3'].map(value => ({name:'secondary',value,checked:false,disabled:false,parentElement:{textContent:'代码 '+value},dispatchEvent(){listeners.change({target:this});}}));
   const buttons = [{disabled:false}, {disabled:false}];
+  const codeButtons = [{disabled:false}];
+  const legacyNotice = {hidden:true,textContent:''};
   const status = {textContent:'', className:''};
   const navigations = [];
   const form = {dataset:{endpoint:'/api/test/',mode,locked:'false',nextUrl},
     addEventListener: (name, fn) => listeners[name] = fn,
-    querySelector: selector => selector === '.save-status' ? status : fields[selector.match(/name=([^\]]+)/)[1]],
+    querySelector: selector => selector === '.save-status' ? status : selector === '[data-legacy-secondary]' ? legacyNotice : fields[selector.match(/name=([^\]]+)/)?.[1]],
     querySelectorAll: selector => {
       if (selector === '[name=secondary]:checked') return secondary.filter(x => x.checked);
       if (selector === '[name=secondary]') return secondary;
-      if (selector === 'button') return buttons;
+      if (selector === 'button[data-action]') return buttons;
+      if (selector === 'button') return buttons.concat(codeButtons);
       const inputs = Object.entries(fields).filter(([k]) => k !== 'csrfmiddlewaretoken').map(([,v]) => v).concat(secondary);
-      if (selector.includes('button')) return inputs.concat(buttons);
+      if (selector.includes('button')) return inputs.concat(buttons,codeButtons);
       return inputs;
     }};
   const context = {document:{hidden:false,querySelector:()=>form,querySelectorAll:()=>[],
-    getElementById: id => id === 'annotation-data' ? {textContent:JSON.stringify({revision:0,secondary:[],...initial})} : null},
+    getElementById: id => id === 'annotation-data' ? {textContent:JSON.stringify({revision:0,primary:1,secondary:[],...initial})} : null},
     location:{pathname:'/fixture/',origin:'http://localhost',href:'http://localhost/fixture/',assign: url=>navigations.push(url)},
     window:{addEventListener:(name,fn)=>windowListeners[name]=fn},
-    fetch:fetchImplementation, URL, Promise, Date, Math,
+    fetch:fetchImplementation, URL, Promise, Date, Math,Event:class{constructor(type){this.type=type;}},
     setTimeout: fn => {const id=Math.random();timers.set(id,fn);return id;},clearTimeout:id=>timers.delete(id),setInterval:()=>{}};
   vm.runInNewContext(source, context);
-  return {fields,secondary,status,buttons,navigations,
+  return {fields,secondary,status,buttons,codeButtons,navigations,form,legacyNotice,
+    choosePrimary: value => {fields.primary.value=value;fields.primary.dispatchEvent({type:'change'});},
+    chooseNoCode: checked => {fields.no_code.checked=checked;fields.no_code.dispatchEvent({type:'change'});},
+    chooseSecondary: index => {secondary[index].checked=true;listeners.change({target:secondary[index]});},
     edit: text => {fields.note.value=text;listeners.input();},
     click: action => listeners.submit({preventDefault(){},submitter:{dataset:{action}}}),
     autoSave:()=>{const callbacks=[...timers.values()];timers.clear();callbacks.forEach(fn=>fn());},
@@ -43,6 +49,95 @@ function response(annotation, status=200, error) {
   return {ok:status===200,status,headers:{get:()=> 'application/json'},json:async()=>({annotation,error})};
 }
 async function flush() {for(let n=0;n<12;n++) await Promise.resolve();}
+
+test('empty coding starts disabled, selecting enables and clearing disables both manual buttons',async()=>{
+  let calls=0;const ui=setup(async()=>{calls++;return response({revision:1,status:'draft'});},{primary:null});
+  assert.equal(ui.buttons.every(button=>button.disabled),true);
+  ui.click('save');ui.click('submit_next');await flush();assert.equal(calls,0);
+  ui.choosePrimary('1');assert.equal(ui.buttons.every(button=>!button.disabled),true);
+  ui.choosePrimary('');assert.equal(ui.buttons.every(button=>button.disabled),true);
+  ui.edit('尚未选代码的备注');ui.autoSave();await flush();assert.equal(calls,1);
+  assert.equal(ui.buttons.every(button=>button.disabled),true);
+});
+test('no-code and uncertainty remain valid judgments; uncertainty requires a reason',async()=>{
+  const ui=setup(async()=>response({revision:1,status:'draft'}),{primary:null});
+  ui.chooseNoCode(true);assert.equal(ui.buttons.every(button=>!button.disabled),true);
+  ui.chooseNoCode(false);assert.equal(ui.buttons.every(button=>button.disabled),true);
+  ui.fields.uncertain.checked=true;ui.fields.uncertain.dispatchEvent({type:'change'});
+  assert.equal(ui.buttons.every(button=>button.disabled),true);
+  ui.edit('这里的含义还不能确定');assert.equal(ui.buttons.every(button=>!button.disabled),true);
+  ui.edit('  ');assert.equal(ui.buttons.every(button=>button.disabled),true);
+});
+test('valid manual buttons recover after network or validation failure but not a conflict',async()=>{
+  for(const code of [400,503]) {
+    const ui=setup(async()=>response(null,code,'请重试'));
+    ui.click('save');await flush();assert.equal(ui.buttons.every(button=>!button.disabled),true);
+  }
+  const offline=setup(async()=>{throw new Error('offline');});offline.click('save');await flush();
+  assert.equal(offline.buttons.every(button=>!button.disabled),true);
+  const conflict=setup(async()=>response(null,409,'冲突'));conflict.click('save');await flush();
+  assert.equal(conflict.buttons.every(button=>button.disabled),true);
+});
+test('preloaded coded record initializes enabled while a locked record stays read only',()=>{
+  const ui=setup(async()=>response({revision:1,status:'draft'}),{primary:1});
+  assert.equal(ui.buttons.every(button=>!button.disabled),true);
+  ui.form.dataset.splitting='true';ui.form.platformRestoreControls();
+  assert.equal(ui.buttons.every(button=>button.disabled),true);
+  ui.form.dataset.splitting='false';ui.form.platformRestoreControls();
+  assert.equal(ui.buttons.every(button=>!button.disabled),true);
+});
+
+test('draft saves do not disable code buttons or primary and secondary choices',async()=>{
+  let finish;const ui=setup(()=>new Promise(resolve=>finish=resolve));
+  ui.fields.primary.value='1';ui.chooseSecondary(0);ui.edit('先保存');ui.autoSave();
+  assert.equal(ui.codeButtons[0].disabled,false);assert.equal(ui.fields.primary.disabled,false);
+  assert.equal(ui.secondary[0].disabled,false);assert.equal(ui.buttons[0].disabled,true);
+  ui.chooseSecondary(1);assert.equal(ui.secondary[0].checked,false);assert.equal(ui.secondary[1].checked,true);
+  finish(response({revision:1,status:'draft'}));await flush();assert.equal(ui.isDirty(),true);
+});
+test('primary and one secondary are saved together and changing secondary never erases primary',async()=>{
+  const sent=[];const ui=setup(async(url,options)=>{sent.push(JSON.parse(options.body));return response({revision:sent.length,status:'draft'});});
+  ui.fields.primary.value='1';ui.chooseSecondary(0);ui.autoSave();await flush();
+  assert.equal(sent[0].primary,1);assert.deepEqual(sent[0].secondary,[2]);
+  ui.chooseSecondary(1);ui.autoSave();await flush();assert.equal(sent[1].primary,1);assert.deepEqual(sent[1].secondary,[3]);
+});
+
+test('rapid primary and secondary choices preserve only the latest pair after an in-flight draft',async()=>{
+  let finish;const sent=[];
+  const ui=setup((url,options)=>{
+    sent.push(JSON.parse(options.body));
+    return sent.length===1?new Promise(resolve=>finish=resolve):Promise.resolve(response({revision:sent.length,status:'draft'}));
+  });
+  ui.choosePrimary('1');ui.chooseSecondary(0);ui.autoSave();
+  for(let n=0;n<20;n++) {ui.choosePrimary(n%2?'4':'1');ui.chooseSecondary(n%2);}
+  assert.equal(sent.length,1);assert.equal(ui.codeButtons[0].disabled,false);assert.equal(ui.fields.primary.disabled,false);
+  finish(response({revision:1,status:'draft'}));await flush();ui.autoSave();await flush();
+  assert.equal(sent.length,2);assert.equal(sent[1].revision,1);assert.equal(sent[1].primary,4);assert.deepEqual(sent[1].secondary,[3]);
+  assert.equal(ui.isDirty(),false);assert.equal(ui.navigations.length,0);
+});
+
+test('choosing a new primary retains a different secondary but clears an identical secondary',async()=>{
+  const sent=[];const ui=setup(async(url,options)=>{sent.push(JSON.parse(options.body));return response({revision:sent.length,status:'draft'});});
+  ui.choosePrimary('1');ui.chooseSecondary(0);ui.choosePrimary('4');ui.autoSave();await flush();
+  assert.equal(sent[0].primary,4);assert.deepEqual(sent[0].secondary,[2]);
+  ui.choosePrimary('2');ui.autoSave();await flush();assert.equal(sent[1].primary,2);assert.deepEqual(sent[1].secondary,[]);
+});
+test('splitting flushes a save already in flight and then the latest edits',async()=>{
+  let finish;const sent=[];const ui=setup((url,options)=>{sent.push(JSON.parse(options.body));return sent.length===1?new Promise(resolve=>finish=resolve):Promise.resolve(response({revision:2,status:'draft'}));});
+  ui.edit('第一版');ui.autoSave();ui.edit('拆分前的新判断');
+  const saved=ui.form.platformSaveBeforeSplit();finish(response({revision:1,status:'draft'}));
+  assert.equal(await saved,2);assert.equal(sent.length,2);assert.equal(sent[1].note,'拆分前的新判断');assert.equal(ui.canReturn(),true);
+});
+test('a failed save prevents splitting and preserves the pending coding input',async()=>{
+  const ui=setup(async()=>{throw new Error('offline');});ui.edit('保留这个判断');
+  await assert.rejects(ui.form.platformSaveBeforeSplit(),/尚未保存/);
+  assert.equal(ui.fields.note.value,'保留这个判断');assert.equal(ui.canReturn(),false);
+});
+test('old multiple secondary labels are not silently truncated on autosave',async()=>{
+  const sent=[];const ui=setup(async(url,options)=>{sent.push(JSON.parse(options.body));return sent.length===1?response(null,400,'次代码只能选择一个'):response({revision:1,status:'draft'});},{primary:1,secondary:[2,3]});
+  assert.equal(ui.legacyNotice.hidden,false);ui.edit('原备注');ui.autoSave();await flush();assert.deepEqual(sent[0].secondary,[2,3]);
+  ui.chooseSecondary(0);ui.autoSave();await flush();assert.deepEqual(sent[1].secondary,[2]);
+});
 
 test('draft autosave sends Chinese notes and updates saved revision', async()=>{
   let sent;
@@ -73,10 +168,11 @@ test('submit after retry commits latest input, not just the old draft',async()=>
   assert.equal(sent[2].action,'submit');assert.equal(sent[2].note,'最终提交输入');assert.equal(sent[2].revision,1);
   assert.match(ui.status.textContent,/已提交并锁定/);assert.equal(ui.buttons[0].disabled,true);
 });
-test('conflict preserves editable input and stops further overwrites',async()=>{
+test('conflict preserves input values but disables edits and stops further overwrites',async()=>{
   let calls=0;const ui=setup(async()=>{calls++;return response(null,409,'版本冲突，输入保留');});
   ui.edit('不能丢失的备注');ui.click('save');await flush();
-  assert.equal(ui.fields.note.value,'不能丢失的备注');assert.equal(ui.fields.note.disabled,false);
+  assert.equal(ui.fields.note.value,'不能丢失的备注');assert.equal(ui.fields.note.disabled,true);
+  assert.equal(ui.fields.primary.disabled,true);assert.equal(ui.secondary.every(el=>el.disabled),true);
   assert.equal(ui.isDirty(),true);assert.equal(ui.buttons[0].disabled,true);
   ui.autoSave();await flush();assert.equal(calls,1);
 });
@@ -89,6 +185,24 @@ test('decision edits are manual-save, not automatic',async()=>{
   let calls=0;const ui=setup(async()=>{calls++;return response({revision:1});},{},'decision');
   ui.edit('协商依据');ui.autoSave();await flush();assert.equal(calls,0);
   ui.click('save');await flush();assert.equal(calls,1);
+});
+
+test('decision main and one secondary coexist and no-code explicitly clears both',async()=>{
+  const sent=[];const ui=setup(async(url,options)=>{sent.push(JSON.parse(options.body));return response({revision:sent.length});},{no_code:true,uncertain:true},'decision');
+  ui.choosePrimary('1');assert.equal(ui.fields.no_code.checked,false);ui.chooseSecondary(0);ui.edit('人工协商依据');
+  ui.click('save');await flush();assert.equal(sent[0].primary,1);assert.deepEqual(sent[0].secondary,[2]);
+  ui.chooseNoCode(true);assert.equal(ui.fields.primary.value,'');assert.equal(ui.secondary.some(el=>el.checked),false);
+  assert.equal(ui.fields.note.value,'人工协商依据');assert.equal(ui.fields.uncertain.checked,true);
+  ui.autoSave();await flush();assert.equal(sent.length,1);
+  ui.click('save');await flush();assert.equal(sent[1].primary,null);assert.deepEqual(sent[1].secondary,[]);assert.equal(sent[1].no_code,true);
+});
+
+test('a shared decision conflict retains its chosen pair and disables further mutations',async()=>{
+  let calls=0;const ui=setup(async()=>{calls++;return response(null,409,'协商结论已被另一成员保存');},{},'decision');
+  ui.choosePrimary('1');ui.chooseSecondary(1);ui.edit('保留协商依据');ui.click('save');await flush();
+  assert.equal(ui.fields.primary.value,'1');assert.equal(ui.secondary[1].checked,true);assert.equal(ui.fields.note.value,'保留协商依据');
+  assert.equal(ui.fields.primary.disabled,true);assert.equal(ui.fields.note.disabled,true);assert.equal(ui.secondary.every(el=>el.disabled),true);
+  ui.click('save');await flush();assert.equal(calls,1);assert.equal(ui.canReturn(),false);
 });
 
 test('return is blocked during unsaved and in-flight coding, then allowed after confirmed save',async()=>{

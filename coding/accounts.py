@@ -9,6 +9,7 @@ from django.views.decorators.debug import sensitive_post_parameters
 from django.views.decorators.http import require_POST, require_http_methods
 from .account_forms import RegistrationForm, JoinGroupForm, InvitationForm, JoinReviewForm
 from .models import Profile, ProjectJoinRequest
+from .workspace_views import group_context
 from .group_services import (issue_invitation, revoke_invitation, request_membership,
                              review_membership, cancel_membership_request)
 
@@ -54,8 +55,8 @@ def join_group(request):
                 messages.info(request, '你已经是这个项目小组的成员。')
                 return redirect('project', project.id)
             messages.success(request, '你已申请加入“' + project.name + '”，请等待负责人审核。')
-            return redirect('home')
-    return render(request, 'coding/join_group.html', {'form': form})
+            return redirect('join_group')
+    return render(request, 'coding/join_group.html', {'form': form, **group_context(request)})
 
 
 def _message_error(request, error):
@@ -100,7 +101,7 @@ def join_review(request, project_id, application_id):
     try:
         review_membership(project, request.user, application_id, data['revision'],
                           data['action'], data['role'], data['decision_note'])
-        messages.success(request, '申请已通过，成员可进入项目；编码任务仍需在安排任务时分配。' if data['action'] == 'approve' else '申请已拒绝。')
+        messages.success(request, '申请已通过，小组项目已加入成员的“我的项目”。' if data['action'] == 'approve' else '申请已拒绝。')
     except (ValueError, OperationalError) as exc:
         _message_error(request, exc)
     return redirect('members', project.id)
@@ -119,4 +120,4 @@ def join_cancel(request, application_id):
         messages.success(request, '申请已撤回，没有退出已加入的项目。')
     except (ValueError, OperationalError) as exc:
         _message_error(request, exc)
-    return redirect('home')
+    return redirect('join_group')

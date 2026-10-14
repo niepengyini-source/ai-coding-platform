@@ -45,7 +45,7 @@ def check(name, condition):
 
 status, page, headers = request('/login/')
 check('login_http', status == 200 and 'AI辅助编码平台'.encode() in page)
-check('global_return_control_http', b'id="page-back"' in page)
+check('public_login_has_no_sidebar_or_return', b'id="page-back"' not in page and b'<aside class="sidebar">' not in page)
 navigation_path = re.search(rb'src="(/static/navigation\.[^"]+\.js)"', page).group(1).decode()
 status, navigation, _ = request(navigation_path)
 check('hashed_navigation_script_served', status == 200 and b'platform:before-back' in navigation)

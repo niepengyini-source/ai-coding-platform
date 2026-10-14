@@ -1,5 +1,6 @@
 {% extends 'base.html' %}{% load metrics %}{% block content %}<div class="page-heading heading-row"><div><h1>独立编码一致性</h1><p>{{ round.name }} · 编码本v{{ round.book.version }} · 使用协商前的独立答案，不使用最终结论。</p></div><form method="post">{% csrf_token %}<button class="button" type="submit">计算并保存报告快照</button></form></div>
 {% if report %}
+{% if data.has_personal_splits %}<div class="notice">本轮包含拆分记录，仅相同片段的编码参与成对比较。</div>{% endif %}
 {% if data.training or data.reopened_not_blind %}<div class="notice danger">这是培训或已公开答案后重开的结果，不能当作新的盲法独立信度。</div>{% endif %}
 {% if data.previously_visible_unit_count %}<div class="notice danger">本轮有 {{ data.previously_visible_unit_count }} 个单元曾用于培训或已公开协商，应作为复测样本解释。当前隐藏他人答案不能抹掉先前记忆；不要把包含这些单元的整体指标称为全新盲样本的检验结果。</div>{% endif %}
 {% if not data.sample_history_recorded %}<p class="hint">此旧版报告未记录样本之前是否公开；解释独立性时请自行核对抽样历史。</p>{% endif %}

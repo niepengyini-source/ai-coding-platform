@@ -14,7 +14,7 @@ from openpyxl import Workbook
 from .importing import parse_upload
 from .models import Assignment, AuditEvent, Round, SourceDocument, Unit, UploadDraft
 from .tests import TEST_SETTINGS, fixture, Helpers
-from .services import Conflict, save_assignment, project_archive
+from .services import Conflict, annotation_data, save_assignment, project_archive
 from .splitting import split_personal
 from .workflow import start_quick_coding, close_quick_coding
 
@@ -195,16 +195,32 @@ class WorkpadSplitTests(Helpers, TestCase):
         from .exporting import unit_table
         self.assertEqual(len(unit_table(self.project, include_inactive=True).rows), 3)
 
-    def test_original_cannot_be_saved_with_split_token_or_reopened(self):
+    def test_original_cannot_be_saved_with_split_token_and_history_is_read_only(self):
         self.split()
         response = self.save(self.a, token=self.payload['token'], action='save')
         self.assertEqual(response.status_code, 409)
-        self.assertEqual(self.client.get(f'/p/{self.project.pk}/history/{self.a.pk}/').status_code, 404)
+        response = self.client.get(f'/p/{self.project.pk}/history/{self.a.pk}/')
+        self.assertContains(response, '原记录已拆分')
+        self.assertFalse(response.context['flags']['editable'])
+        self.assertFalse(response.context['flags']['reopenable'])
 
-    def test_saved_or_submitted_personal_answer_cannot_be_split(self):
-        self.save(self.a)
-        self.assertEqual(self.split(revision=1).status_code, 409)
-        self.assertFalse(self.a.segments.exists())
+    def test_saved_and_submitted_personal_answers_can_split_without_losing_labels(self):
+        for index, action in enumerate(['save', 'submit']):
+            a = self.personal.assignments.get(unit=self.units[index])
+            self.assertEqual(self.save(a, action=action).status_code, 200)
+            a.refresh_from_db()
+            original = annotation_data(a)
+            self.url = f'/api/assignments/{a.pk}/split/'
+            self.assertEqual(self.split(revision=a.revision, token=str(uuid.uuid4())).status_code, 200)
+            a.refresh_from_db()
+            self.assertTrue(a.superseded)
+            self.assertEqual(a.primary_id, original['primary'])
+            self.assertEqual(a.secondary, original['secondary'])
+            self.assertEqual(a.note, original['note'])
+            self.assertEqual(a.status, original['status'])
+            self.assertEqual(a.segments.count(), 2)
+            self.assertTrue(all(not child.primary_id and not child.secondary and child.revision == 0
+                                for child in a.segments.all()))
 
     def test_invalid_boundary_revision_and_foreign_user_do_not_split(self):
         for offset in [0, len(self.a.unit.text), -1, True, '5', 1.5]:
@@ -244,9 +260,7 @@ class WorkpadSplitTests(Helpers, TestCase):
 
     def test_collaborative_split_is_a_suggestion_without_changing_any_tasks(self):
         a = self.r.assignments.get(coder=self.coder, unit=self.units[0])
-        self.url = f'/api/assignments/{a.pk}/split/'
         old = list(self.r.assignments.values())
-        self.assertEqual(self.split().status_code, 403)
         self.url = f'/api/assignments/{a.pk}/split-suggestion/'
         self.assertEqual(self.split(reason='一句包含两个行为').status_code, 200)
         self.assertEqual(self.split(reason='一句包含两个行为').status_code, 200)

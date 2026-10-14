@@ -1,0 +1,14 @@
+{% extends 'base.html' %}{% block title %}我的项目 · AI辅助编码平台{% endblock %}{% block content %}
+<section class="workspace-projects">
+  <div class="page-heading heading-row"><h1>我的项目</h1>{% if memberships %}<a class="button secondary" href="{% url 'project_new' %}">＋ 创建项目</a>{% endif %}</div>
+  {% if memberships %}<div class="project-grid">
+    {% for membership in memberships %}<a class="card project-card workspace-project-card" href="{% url 'project' membership.project.id %}">
+      <div class="project-card-top"><span class="project-icon" aria-hidden="true">▤</span><span class="badge">{% if membership.role == 'owner' %}我的项目{% else %}小组项目 · {{ membership.get_role_display }}{% endif %}</span></div>
+      <h2>{{ membership.project.name }}</h2>
+      {% if membership.project.goal %}<p>{{ membership.project.goal|truncatechars:100 }}</p>{% endif %}
+      <dl class="workspace-project-times"><div><dt>创建时间</dt><dd><time datetime="{{ membership.project.created_at|date:'c' }}">{{ membership.project.created_at|date:'Y.m.d H:i' }}</time></dd></div><div><dt>最后更新</dt><dd><time datetime="{{ membership.project_updated_at|date:'c' }}">{{ membership.project_updated_at|date:'Y.m.d H:i' }}</time></dd></div></dl>
+      <div class="workspace-project-enter">进入项目 →</div>
+    </a>{% endfor %}
+  </div>{% else %}<div class="workspace-empty"><p>还没有创建项目，快点创建属于自己的新项目吧。</p><a class="button workspace-create" href="{% url 'project_new' %}">＋ 创建项目</a></div>{% endif %}
+</section>
+{% endblock %}

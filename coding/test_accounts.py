@@ -38,9 +38,10 @@ class AccountTests(TestCase):
         return self.client.post(f'/p/{self.project.id}/requests/{application.id}/review/', data)
 
     def test_registration_public_entry_and_no_cache(self):
-        self.assertContains(self.client.get('/login/'), '创建自己的账号')
+        self.assertContains(self.client.get('/login/'), 'href="/accounts/register/"')
         response = self.client.get('/accounts/register/')
-        self.assertContains(response, '不需要填写邮箱或手机号')
+        self.assertNotContains(response, 'type="email"')
+        self.assertNotContains(response, '<aside class="sidebar">')
         self.assertContains(response, 'autocomplete="new-password"')
         self.assertEqual(response['Cache-Control'], 'no-store')
         self.assertEqual(self.client.get('/groups/join/').status_code, 302)
@@ -137,7 +138,7 @@ class AccountTests(TestCase):
         application = ProjectJoinRequest.objects.get(project=self.project, user=self.outsider)
         self.assertEqual(application.status, 'pending')
         self.assertFalse(Membership.objects.filter(project=self.project, user=self.outsider).exists())
-        home = self.client.get('/')
+        home = self.client.get('/groups/join/')
         self.assertContains(home, '等待审核')
         self.assertNotContains(home, self.project.goal)
         for path in [f'/p/{self.project.id}/', f'/p/{self.project.id}/units/',
@@ -181,7 +182,8 @@ class AccountTests(TestCase):
         self.assertFalse(self.r.assignments.filter(coder=self.outsider).exists())
         self.client.force_login(self.outsider)
         self.assertEqual(self.client.get(f'/p/{self.project.id}/').status_code, 200)
-        self.assertContains(self.client.get('/'), '已加入')
+        self.assertContains(self.client.get('/groups/join/'), '已加入')
+        self.assertContains(self.client.get('/projects/'), f'/p/{self.project.pk}/')
 
     def test_approval_requires_owner_and_rejects_owner_role(self):
         self.apply()
@@ -206,7 +208,7 @@ class AccountTests(TestCase):
         application = ProjectJoinRequest.objects.get()
         self.review(application, action='reject', decision_note='请补充身份')
         self.client.force_login(self.outsider)
-        self.assertContains(self.client.get('/'), '请补充身份')
+        self.assertContains(self.client.get('/groups/join/'), '请补充身份')
         self.apply(code=code, note='新的身份说明')
         self.review(application)
         application.refresh_from_db()

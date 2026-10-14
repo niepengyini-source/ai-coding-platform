@@ -20,18 +20,43 @@ if (form) {
   ['uncertain','no_code'].forEach(k => form.querySelector(`[name=${k}]`).checked = !!initial[k]);
   form.querySelectorAll('[name=secondary]').forEach(el => el.checked = (initial.secondary || []).includes(Number(el.value)));
   let revision = initial.revision, dirty = false, generation = 0, inFlight = false, timer, halted = false, pending = null, committed = false;
+  let secondaryChanged = false, savedSignal = Promise.resolve(), finishSave;
+  const legacySecondary = (initial.secondary || []).length > 1 ? initial.secondary : null;
+  const legacyNotice = form.querySelector('[data-legacy-secondary]');
+  if (legacySecondary && legacyNotice) {
+    const labels = [...form.querySelectorAll('[name=secondary]')].filter(el => legacySecondary.includes(Number(el.value))).map(el => el.parentElement.textContent.trim());
+    legacyNotice.textContent = '原次代码：' + labels.join('；') + '。修改时请选择一个，原记录保留在历史中。';
+    legacyNotice.hidden = false;
+  }
   form.dataset.revision = revision;
   const locked = form.dataset.locked === 'true';
   if (locked) form.querySelectorAll('input,textarea,select,button').forEach(el => el.disabled = true);
   const setStatus = (text, kind = '') => { status.textContent = text; status.className = `save-status ${kind}`; };
   const uuid = () => globalThis.crypto?.randomUUID ? crypto.randomUUID() : `${Date.now()}-${Math.random().toString(36).slice(2)}`;
   const payload = action => ({revision, action, token: uuid(), primary: primary.value ? Number(primary.value) : null,
-    secondary: [...form.querySelectorAll('[name=secondary]:checked')].map(el => Number(el.value)),
+    secondary: legacySecondary && !secondaryChanged ? legacySecondary : [...form.querySelectorAll('[name=secondary]:checked')].map(el => Number(el.value)),
     uncertain: form.querySelector('[name=uncertain]').checked, no_code: form.querySelector('[name=no_code]').checked, note: note.value});
   const schedule = () => {
     clearTimeout(timer);
     if (form.dataset.mode === 'annotation' && !halted && !locked) timer = setTimeout(() => write('save'), 1200);
   };
+  const hasJudgment = () => !!(primary.value || form.querySelector('[name=no_code]').checked || form.querySelector('[name=uncertain]').checked)
+    && (!form.querySelector('[name=uncertain]').checked || !!note.value.trim());
+  const restoreControls = () => {
+    const stopped = locked || committed || halted || form.dataset.splitting === 'true';
+    const pendingSubmit = pending?.payload.action === 'submit';
+    form.querySelectorAll('input:not([type=hidden]),textarea,select').forEach(el => el.disabled = stopped || pendingSubmit);
+    form.querySelectorAll('button').forEach(el => el.disabled = stopped || pendingSubmit);
+    const needsChoice = form.dataset.mode === 'annotation' && !hasJudgment();
+    form.querySelectorAll('button[data-action]').forEach(el => el.disabled = stopped || inFlight || needsChoice);
+    const choiceHint = form.querySelector('[data-choice-required]');
+    if (choiceHint) {
+      choiceHint.hidden = !needsChoice || stopped;
+      choiceHint.textContent = form.querySelector('[name=uncertain]').checked ? '请补充不确定的原因' : '先选择代码';
+    }
+    form.platformRefreshCodes?.();
+  };
+  form.platformRestoreControls = restoreControls;
   async function write(action) {
     if (locked || halted || inFlight) return;
     clearTimeout(timer);
@@ -44,8 +69,8 @@ if (form) {
     let succeeded = false;
     let destination = null;
     inFlight = true;
-    form.querySelectorAll('button').forEach(el => el.disabled = true);
-    if (request.action === 'submit') form.querySelectorAll('input:not([type=hidden]),textarea,select').forEach(el => el.disabled = true);
+    savedSignal = new Promise(resolve => finishSave = resolve);
+    restoreControls();
     setStatus('正在保存，请等待确认…');
     try {
       const response = await fetch(form.dataset.endpoint, {method:'POST', credentials:'same-origin',
@@ -80,10 +105,8 @@ if (form) {
       setStatus(error.message || '网络异常，未确认保存。你的输入仍在，请稍后重试。', 'error');
     } finally {
       inFlight = false;
-      if (!committed) {
-        form.querySelectorAll('input:not([type=hidden]),textarea,select').forEach(el => el.disabled = pending?.payload.action === 'submit');
-        form.querySelectorAll('button').forEach(el => el.disabled = halted);
-      }
+      restoreControls();
+      finishSave();
       // Do not loop indefinitely on a network error or validation error.
       if (succeeded && saveAction === 'submit' && request.action !== 'submit') {
         Promise.resolve().then(() => write(action));
@@ -93,17 +116,49 @@ if (form) {
   }
   form.addEventListener('input', event => {
     if (event?.target?.name === 'code_search') return;
-    dirty = true; generation++; setStatus('有未保存的编辑'); schedule();
+    dirty = true; generation++; setStatus('有未保存的编辑'); restoreControls(); schedule();
   });
   form.addEventListener('change', event => {
     if (event?.target?.name === 'code_search') return;
-    dirty = true; generation++; schedule();
+    if (event?.target?.name === 'secondary') {
+      secondaryChanged = true;
+      if (event.target.checked) {
+        form.querySelector('[name=no_code]').checked = false;
+        form.querySelectorAll('[name=secondary]').forEach(el => { if (el !== event.target) el.checked = false; });
+      }
+      if (legacyNotice) legacyNotice.hidden = true;
+    }
+    dirty = true; generation++; restoreControls(); schedule();
   });
   primary.addEventListener('change', () => {
-    form.querySelectorAll('[name=secondary]').forEach(el => { if (el.value === primary.value) el.checked = false; });
+    form.querySelectorAll('[name=secondary]').forEach(el => { if (!primary.value || el.value === primary.value) el.checked = false; });
+    if (primary.value) form.querySelector('[name=no_code]').checked = false;
+    if (!primary.value) secondaryChanged = true;
   });
-  form.addEventListener('submit', event => { event.preventDefault(); write(event.submitter?.dataset.action || 'save'); });
-  form.addEventListener('keydown', event => { if (event.ctrlKey && event.key === 'Enter') { event.preventDefault(); write('save'); } });
+  if (form.dataset.mode === 'decision') form.querySelector('[name=no_code]').addEventListener('change', event => {
+    if (event.target.checked) {
+      primary.value = '';
+      primary.dispatchEvent(new Event('change', {bubbles:true}));
+    }
+  });
+  form.querySelector('[data-secondary-clear]')?.addEventListener('click', () => {
+    if (primary.disabled) return;
+    const choices = [...form.querySelectorAll('[name=secondary]')];
+    choices.forEach(el => el.checked = false);
+    choices[0]?.dispatchEvent(new Event('change', {bubbles:true}));
+  });
+  form.platformSaveBeforeSplit = async () => {
+    clearTimeout(timer);
+    if (pending?.payload.action === 'submit') throw new Error('正在提交，请确认完成后再拆分。');
+    if (inFlight) await savedSignal;
+    if (!locked && !committed && (dirty || pending)) await write('save');
+    clearTimeout(timer);
+    if (dirty || pending || inFlight || halted && !committed) throw new Error('当前编码尚未保存，请先核对保存提示后重试。');
+    return revision;
+  };
+  form.addEventListener('submit', event => { event.preventDefault(); if (form.dataset.mode !== 'annotation' || hasJudgment()) write(event.submitter?.dataset.action || 'save'); });
+  form.addEventListener('keydown', event => { if (event.ctrlKey && event.key === 'Enter') { event.preventDefault(); if (form.dataset.mode !== 'annotation' || hasJudgment()) write('save'); } });
+  restoreControls();
   window.addEventListener('beforeunload', event => { if (dirty || inFlight || pending) { event.preventDefault(); event.returnValue = ''; } });
   // The global return button must never leave an unconfirmed coding edit behind.
   window.addEventListener('platform:before-back', event => {

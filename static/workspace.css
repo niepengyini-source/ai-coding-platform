@@ -1,0 +1,35 @@
+.workspace-layout .shell{margin-left:0}
+.workspace-layout .topbar{min-height:76px;height:auto;padding:16px 36px}
+.workspace-layout .content{max-width:1280px;min-height:calc(100vh - 76px);padding:32px 36px}
+.workspace-layout .app-footer{display:none}
+.workspace-brand{margin-bottom:0;white-space:nowrap;font-size:19px}
+.workspace-entry{display:flex;flex-direction:column;justify-content:center;min-height:calc(100vh - 160px);width:min(100%,920px);margin:0 auto;padding-bottom:60px}
+.workspace-modules{display:grid;grid-template-columns:repeat(2,minmax(0,1fr));gap:28px}
+.workspace-module{position:relative;min-height:260px;display:flex;flex-direction:column;align-items:center;justify-content:center;background:white;border:1px solid var(--line);border-radius:16px;color:var(--ink);box-shadow:0 6px 24px #1d2a4305;transition:border-color .15s,box-shadow .15s}
+.workspace-module:hover{border-color:#b6c6f0;box-shadow:0 8px 26px #315de010;text-decoration:none}
+.workspace-module:focus-visible{outline:3px solid var(--blue)}
+.workspace-module h1{font-size:29px;margin:18px 0 0}
+.workspace-module-icon{display:grid;place-items:center;width:72px;height:72px;background:#edf2ff;color:var(--blue);border-radius:18px;font-size:40px;line-height:1}
+.workspace-module-arrow{position:absolute;bottom:23px;right:27px;font-size:23px;color:var(--blue)}
+.workspace-help{display:flex;justify-content:flex-end;padding-top:18px;font-size:13px}
+.workspace-projects{max-width:1140px;margin:28px auto 0}
+.workspace-projects .page-heading h1{margin:0}
+.workspace-empty{display:flex;flex-direction:column;align-items:center;justify-content:center;min-height:calc(100vh - 250px);text-align:center;gap:20px;padding:40px 12px}
+.workspace-empty p{font-size:19px;color:var(--muted);margin:0}
+.workspace-create{font-size:21px;min-width:270px;min-height:70px;border-radius:11px;padding:18px 35px}
+.workspace-project-card{display:flex;flex-direction:column;margin:0}
+.workspace-project-card h2{overflow-wrap:anywhere}
+.workspace-project-card p{min-height:0}
+.workspace-project-times{margin:auto 0 0;padding-top:18px;font-size:12px;display:flex;flex-direction:column;gap:7px;color:var(--muted)}
+.workspace-project-times>div{display:flex;flex-wrap:wrap;justify-content:space-between;gap:4px 12px}
+.workspace-project-times dd{margin:0;font-variant-numeric:tabular-nums}
+.workspace-project-enter{margin-top:18px;padding-top:14px;border-top:1px solid var(--line);text-align:right;font-size:12px;color:var(--blue)}
+.workspace-auth{width:min(100%,440px);margin:clamp(32px,10vh,110px) auto 32px;padding:30px}
+.workspace-auth h1{font-size:25px;text-align:center;margin-bottom:24px}
+.workspace-auth-tabs{display:flex;justify-content:center;gap:36px;border-bottom:1px solid var(--line);margin-bottom:26px}
+.workspace-auth-tabs>*{padding:7px 10px 12px;font-size:15px;color:var(--muted)}
+.workspace-auth-tabs [aria-current=page]{color:var(--blue);font-weight:600;border-bottom:2px solid var(--blue)}
+@media(min-width:761px) and (max-height:600px){.workspace-entry{min-height:calc(100vh - 140px);padding-bottom:0}.workspace-module{min-height:200px}.workspace-empty{min-height:220px;padding:28px 12px;gap:16px}.workspace-auth{margin-top:24px}}
+@media(max-width:760px){.workspace-layout .topbar{padding:14px 18px;gap:14px}.workspace-brand{font-size:16px}.workspace-layout .content{padding:24px 18px}.workspace-entry{padding-bottom:30px;min-height:calc(100vh - 190px)}.workspace-modules{gap:18px}.workspace-module{min-height:220px}.workspace-module h1{font-size:23px}.workspace-module-icon{width:60px;height:60px;font-size:34px}.workspace-projects{margin-top:12px}.workspace-empty p{font-size:17px}.workspace-create{min-width:240px;min-height:64px;font-size:19px}.workspace-auth{padding:24px;margin-top:32px}}
+@media(max-width:480px){.workspace-modules{grid-template-columns:1fr}.workspace-module{min-height:190px}.workspace-empty{min-height:calc(100vh - 280px)}.workspace-project-times>div{justify-content:flex-start}.workspace-module h1{margin-top:12px}.workspace-layout .account{flex-wrap:wrap}}
+@media(prefers-reduced-motion:reduce){.workspace-module,.workspace-project-card{transition:none}}

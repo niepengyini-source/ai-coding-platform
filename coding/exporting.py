@@ -9,7 +9,7 @@ from xml.etree import ElementTree as ET
 
 from django.http import HttpResponse
 from django.utils.http import content_disposition_header
-from .models import Assignment, Unit
+from .models import Assignment, Code, Unit
 from .services import csv_safe
 
 MAX_EXPORT_ROWS = 50000
@@ -45,7 +45,8 @@ def metadata_columns(units):
 
 def annotation_table(r, queryset):
     codes = dict(r.book.codes.values_list('id', 'key'))
-    entries = list(queryset.select_related('unit__record', 'coder').order_by('unit_id', 'coder_id'))
+    entries = list(queryset.select_related('unit__record', 'coder').order_by(
+        'unit__record__document_id', 'unit__record__position', 'unit__start', 'unit_id', 'coder_id'))
     # Scope metadata to the same visible assignments; never reveal other members' records.
     metadata_keys = metadata_columns([a.unit for a in entries])
     headers = ['project_id', 'round_id', 'book_version', 'unit_id', 'document_id', 'record_position',
@@ -62,9 +63,29 @@ def annotation_table(r, queryset):
     return ExportTable(headers + ['meta_' + k for k in metadata_keys] + ['metadata_json'], rows, r.name)
 
 
+def archive_annotation_table(entries, title):
+    """One row per saved coding unit, retaining original metadata and split ancestry."""
+    from django.utils import timezone
+    codes = dict(Code.objects.filter(book_id__in={a.round.book_id for a in entries}).values_list('id', 'key'))
+    metadata_keys = metadata_columns([a.unit for a in entries])
+    headers = ['project_id', 'round_id', 'round_name', 'round_kind', 'round_state', 'book_version',
+               'assignment_id', 'parent_assignment_id', 'superseded', 'unit_id', 'document_id', 'document_name',
+               'record_position', 'span_start', 'span_end', 'coder', 'unit_text', 'primary_code', 'secondary_code',
+               'uncertain', 'no_code', 'coder_note', 'status', 'revision', 'updated_at']
+    rows = [[a.round.project_id, a.round_id, a.round.name, a.round.kind, a.round.state, a.round.book.version,
+             a.pk, a.parent_id or '', a.superseded, a.unit_id, a.unit.record.document_id,
+             a.unit.record.document.name, a.unit.record.position, a.unit.start, a.unit.end, a.coder.username,
+             a.unit.text, codes.get(a.primary_id, ''), '|'.join(codes.get(pk, '') for pk in a.secondary),
+             a.uncertain, a.no_code, a.note, a.status, a.revision, timezone.localtime(a.updated_at).isoformat()]
+            + [a.unit.record.metadata.get(key, '') for key in metadata_keys]
+            + [json.dumps(a.unit.record.metadata, ensure_ascii=False)] for a in entries]
+    return ExportTable(headers + ['meta_' + key for key in metadata_keys] + ['metadata_json'], rows, title)
+
+
 def final_table(r):
     codes = dict(r.book.codes.values_list('id', 'key'))
-    entries = list(r.decisions.filter(cycle=r.cycle).select_related('unit__record', 'author').order_by('unit_id'))
+    entries = list(r.decisions.filter(cycle=r.cycle).select_related('unit__record', 'author').order_by(
+        'unit__record__document_id', 'unit__record__position', 'unit__start', 'unit_id'))
     metadata_keys = metadata_columns([a.unit for a in entries])
     headers = ['project_id', 'round_id', 'book_version', 'unit_id', 'document_id', 'record_position',
                'span_start', 'span_end', 'unit_text', 'primary_code', 'secondary_code', 'no_code', 'decision_id',

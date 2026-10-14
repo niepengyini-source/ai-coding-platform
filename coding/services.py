@@ -42,6 +42,8 @@ def validate_labels(book, data, submitting=True):
         raise ValueError('代码格式不正确。')
     if len(secondary) > 100 or len(set(secondary)) != len(secondary) or primary in secondary:
         raise ValueError('主次代码不能重复。')
+    if len(secondary) > 1:
+        raise ValueError('次代码只能选择一个。')
     for key in ('uncertain', 'no_code'):
         if not isinstance(data.get(key, False), bool):
             raise ValueError('疑点和无代码标记必须为布尔值。')
@@ -270,6 +272,7 @@ def project_archive(project):
     def add_json(name, value):
         files[name] = json.dumps(value, ensure_ascii=False, indent=2, default=str).encode('utf-8')
     add_json('project.json', {'id': project.id, 'name': project.name, 'goal': project.goal, 'description': project.description,
+             'created_at': project.created_at, 'revision': project.revision,
              'members': list(project.memberships.values('user__username', 'role')), 'format_version': 1})
     for doc in project.documents.all():
         extension = Path(doc.name).suffix.lower()
@@ -291,21 +294,34 @@ def project_archive(project):
     for r in project.rounds.all():
         folder = '03_personal_coding' if r.kind == 'quick' else ('03_pilot' if r.kind != 'formal' else '04_formal_coding')
         files[f'{folder}/round_{r.id}_independent.csv'] = export_annotations(r, r.assignments.all())
-        add_json(f'{folder}/round_{r.id}_settings.json', {'name': r.name, 'kind': r.kind, 'book_version': r.book.version,
+        add_json(f'{folder}/round_{r.id}_settings.json', {'name': r.name, 'kind': r.kind, 'state': r.state,
+                                                        'created_at': r.created_at, 'revision': r.revision,
+                                                        'book_version': r.book.version,
                                                         'cycle': r.cycle, 'sampling': r.sampling,
                                                         'started_by': r.started_by_id,
                                                         'note': '个人编码记录，不是多人协商定稿或独立一致性评估。' if r.kind == 'quick' else ''})
+        add_json(f'{folder}/round_{r.id}_assignments.json', list(r.assignments.values()))
         add_json(f'{folder}/round_{r.id}_reports.json', list(r.reports.values()))
         add_json(f'05_adjudication/round_{r.id}_decisions.json', list(r.decisions.values()))
         from .models import Comment
         add_json(f'05_adjudication/round_{r.id}_comments.json', list(Comment.objects.filter(round=r).values()))
         files[f'05_adjudication/round_{r.id}_disagreements.csv'] = export_disagreements(r)
-        if r.kind != 'quick':
-            files[f'06_final/round_{r.id}.csv'] = export_final(r)
+        if r.kind != 'quick' and r.decisions.filter(cycle=r.cycle).exists():
+            path = (f'06_final/round_{r.id}.csv' if r.state == 'closed' else
+                    f'05_adjudication/round_{r.id}_current_decisions.csv')
+            files[path] = export_final(r)
     add_json('99_logs/audit.json', list(AuditEvent.objects.filter(project=project).values()))
     add_json('manifest.json', {'created_at': timezone.now().isoformat(), 'format_version': 1,
+        'archive_type': 'project_snapshot', 'changes_project_state': False,
+        'rounds': [{'id': r.pk, 'name': r.name, 'kind': r.kind, 'state': r.state, 'cycle': r.cycle,
+                    'assignment_count': r.assignments.count(),
+                    'draft_count': r.assignments.filter(status='draft', superseded=False).count(),
+                    'submitted_count': r.assignments.filter(status='submitted', superseded=False).count(),
+                    'current_decision_count': r.decisions.filter(cycle=r.cycle).count(),
+                    'final_is_concluded': r.state == 'closed' and r.kind != 'quick'}
+                   for r in project.rounds.all()],
         'files': {name: {'bytes': len(data), 'sha256': hashlib.sha256(data).hexdigest()} for name, data in files.items()},
-        'note': '研究项目归档，不含账号密码或服务器密钥；不是完整服务器备份。'})
+        'note': '当前项目快照，可包含草稿和已提交记录；不改变批次状态。06_final仅含已结束轮次的当前周期定稿；未结束的协商结论放在05_adjudication/current_decisions文件，不是正式定稿。个人编码不视为协商定稿。不含账号密码或服务器密钥；不是完整服务器备份。'})
     output = io.BytesIO()
     with zipfile.ZipFile(output, 'w', zipfile.ZIP_DEFLATED) as archive:
         for name, data in files.items():

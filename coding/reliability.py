@@ -25,12 +25,23 @@ def alpha(matrix):
 
 
 def report_for(round_obj):
-    assignments = list(round_obj.assignments.select_related('coder', 'primary'))
+    assignments = list(round_obj.assignments.filter(superseded=False).select_related('coder', 'primary'))
     coder_ids = sorted({a.coder_id for a in assignments})
     unit_ids = sorted({a.unit_id for a in assignments})
     by_key = {(a.coder_id, a.unit_id): a for a in assignments}
     codes = list(round_obj.book.codes.all())
     previously_visible = set(round_obj.sampling.get('previously_visible_unit_ids', [])) & set(unit_ids)
+    exposed_sources = set(round_obj.sampling.get('previously_visible_unit_ids', []))
+    if exposed_sources:
+        lineage = {a.pk: (a.parent_id, a.unit_id) for a in round_obj.assignments.only('id', 'parent_id', 'unit_id')}
+        for entry in assignments:
+            ancestor = entry.pk
+            while ancestor:
+                parent_id, source_id = lineage[ancestor]
+                if source_id in exposed_sources:
+                    previously_visible.add(entry.unit_id)
+                    break
+                ancestor = parent_id
     roots = top_level_ids(codes)
     has_hierarchy = any(code.parent_id for code in codes)
     def labels(a):
@@ -81,6 +92,7 @@ def report_for(round_obj):
                          for u in unit_ids for a in [by_key.get((c, u))]] for c in coder_ids] if has_hierarchy else []
     return {'round_id': round_obj.id, 'cycle': round_obj.cycle, 'book_version': round_obj.book.version,
             'unit_count': len(unit_ids), 'coder_count': len(coder_ids),
+            'has_personal_splits': round_obj.assignments.filter(superseded=True).exists(),
             'sample_history_recorded': 'previously_visible_unit_ids' in round_obj.sampling,
             'previously_visible_unit_count': len(previously_visible),
             'previously_visible_unit_ids': sorted(previously_visible),

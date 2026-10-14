@@ -120,7 +120,7 @@ class PlatformTests(Helpers, TestCase):
         for suffix in ['review/', 'report/', 'export/all/']:
             self.assertEqual(self.client.get(f'/r/{self.r.id}/{suffix}').status_code, 403)
         archive = self.client.get(f'/p/{self.project.id}/archive/')
-        self.assertEqual(archive.status_code, 302)
+        self.assertEqual(archive.status_code, 200)
         self.assertNotIn(b'SECRET_OTHER_ANSWER', archive.content)
 
     def test_cannot_open_or_save_other_assignment(self):
@@ -349,7 +349,7 @@ class PlatformTests(Helpers, TestCase):
         rows = list(csv.DictReader(io.StringIO(response.content.decode('utf-8-sig'))))
         self.assertEqual(len(rows), 3)
         self.assertTrue(next(r for r in rows if 'SYNTHETIC' in r['unit_text'])['unit_text'].startswith("'="))
-        data = self.client.get(f'/p/{self.project.id}/archive/').content
+        data = self.client.post(f'/p/{self.project.id}/archive/', {'action': 'full'}).content
         with zipfile.ZipFile(io.BytesIO(data)) as z:
             self.assertIn('manifest.json', z.namelist())
             self.assertIn('99_logs/audit.json', z.namelist())

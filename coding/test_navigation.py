@@ -11,16 +11,16 @@ class NavigationTests(TestCase):
         for name, value in fixture().items():
             setattr(self, name, value)
 
-    def test_public_login_and_registration_include_return(self):
+    def test_public_login_and_registration_are_focused_without_sidebar_or_return(self):
         for path in ['/login/', '/accounts/register/']:
             response = self.client.get(path)
-            self.assertContains(response, 'id="page-back"')
-            self.assertContains(response, 'href="/login/">← 返回上一页')
+            self.assertNotContains(response, 'id="page-back"')
+            self.assertNotContains(response, '<aside class="sidebar">')
             self.assertContains(response, 'data-navigation-user="anonymous"')
 
     def test_workspace_and_join_pages_include_return_and_identity(self):
         self.client.force_login(self.owner)
-        for path in ['/', '/projects/new/', '/groups/join/', '/guide/', '/accounts/password/']:
+        for path in ['/projects/new/', '/groups/join/', '/guide/', '/accounts/password/']:
             response = self.client.get(path)
             self.assertContains(response, 'id="page-back"')
             self.assertContains(response, f'data-navigation-user="{self.owner.id}"')
@@ -42,7 +42,7 @@ class NavigationTests(TestCase):
 
     def test_project_home_falls_back_to_workspace(self):
         self.client.force_login(self.owner)
-        self.assertContains(self.client.get(f'/p/{self.project.id}/'), 'href="/">← 返回上一页')
+        self.assertContains(self.client.get(f'/p/{self.project.id}/'), 'href="/projects/">← 返回上一页')
 
     def test_first_password_setup_cannot_be_bypassed_by_return(self):
         Profile.objects.create(user=self.coder, must_change_password=True)

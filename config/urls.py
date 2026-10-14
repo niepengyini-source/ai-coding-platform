@@ -5,6 +5,7 @@ from coding import views as v
 from coding import accounts as a
 from coding import file_views as f
 from coding import workflow_views as w
+from coding import workspace_views as workspace
 from coding.account_forms import PlatformLoginForm
 
 urlpatterns = [
@@ -15,7 +16,8 @@ urlpatterns = [
     path('logout/', auth.LogoutView.as_view(), name='logout'),
     path('accounts/password/', v.PlatformPasswordChangeView.as_view(), name='password_change'),
     path('accounts/password/done/', TemplateView.as_view(template_name='registration/password_change_done.html'), name='password_change_done'),
-    path('', v.home, name='home'), path('guide/', v.guide, name='guide'),
+    path('', workspace.entry, name='home'), path('guide/', v.guide, name='guide'),
+    path('projects/', workspace.projects, name='projects'),
     path('projects/new/', v.project_new, name='project_new'),
     path('p/<int:project_id>/', v.project_view, name='project'),
     path('p/<int:project_id>/members/', v.members, name='members'),
@@ -49,6 +51,7 @@ urlpatterns = [
     path('r/<int:round_id>/report/', v.reliability, name='reliability'),
     path('r/<int:round_id>/export/<str:mode>/', v.export_round, name='export_round'),
     path('api/assignments/<int:assignment_id>/save/', v.assignment_save, name='assignment_save'),
+    path('api/assignments/<int:assignment_id>/context/', v.assignment_context, name='assignment_context'),
     path('api/assignments/<int:assignment_id>/split/', v.assignment_split, name='assignment_split'),
     path('api/assignments/<int:assignment_id>/split-suggestion/', v.split_suggestion, name='split_suggestion'),
     path('assignments/<int:assignment_id>/reopen/', v.assignment_reopen, name='assignment_reopen'),

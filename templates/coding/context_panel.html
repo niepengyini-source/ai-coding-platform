@@ -1,0 +1,9 @@
+<article class="card" data-context-loader data-endpoint="{% url 'assignment_context' assignment.id %}">
+  <div class="section-heading"><h2>前后上下文</h2></div>
+  <button class="button secondary context-more" type="button" data-context-more="before" data-cursor="{{ before_cursor }}" {% if not more_before %}disabled{% endif %}>{% if more_before %}↑ 查看上文 +3{% else %}已到最前{% endif %}</button>
+  <div data-context-before>{% for rec in context_before %}{% include 'coding/context_row.html' %}{% endfor %}</div>
+  {% include 'coding/context_row.html' with rec=assignment.unit.record current=True %}
+  <div data-context-after>{% for rec in context_after %}{% include 'coding/context_row.html' %}{% endfor %}</div>
+  <button class="button secondary context-more" type="button" data-context-more="after" data-cursor="{{ after_cursor }}" {% if not more_after %}disabled{% endif %}>{% if more_after %}↓ 查看下文 +3{% else %}已到最后{% endif %}</button>
+  <span class="hint" data-context-status role="status" aria-live="polite"></span>
+</article>

@@ -45,7 +45,7 @@ def check(name, condition):
 
 owner, member = Session(), Session()
 status, page, _ = member.request('/login/')
-check('login_has_self_registration', status == 200 and '创建自己的账号' in page)
+check('login_has_self_registration', status == 200 and '注册账号' in page and '/accounts/register/' in page)
 status, page, headers = member.request('/accounts/register/')
 check('register_form_real_http', status == 200 and 'new-password' in page and headers.get('Cache-Control') == 'no-store')
 username, password = 'qa_self_' + uuid.uuid4().hex[:10], secrets.token_urlsafe(18)
@@ -53,7 +53,7 @@ data = {'username': username, 'password1': password, 'password2': password, 'is_
 status, _, _ = member.request('/accounts/register/', data, csrf=False)
 check('register_csrf_required', status == 403)
 status, page, _ = member.request('/accounts/register/', data)
-check('self_registered_auto_login', status == 200 and '账号已创建' in page and '还没有加入项目' in page)
+check('self_registered_auto_login', status == 200 and '账号已创建' in page and '/projects/' in page and '/groups/join/' in page)
 status, _, _ = member.request(f'/p/{credentials["project"]}/')
 check('new_account_cannot_access_private_project', status == 404)
 status, page, _ = member.request('/groups/join/')
@@ -85,8 +85,8 @@ check('applicant_cannot_approve_itself', status == 404)
 status, page, _ = owner.request(review_path, {'revision': application_revision, 'action': 'approve', 'role': 'coder',
                                              'decision_note': '纯虚构HTTP验收：已核对'})
 check('owner_approves_as_coder', status == 200 and '申请已通过' in page)
-status, page, _ = member.request('/')
-check('approved_project_appears_in_home', status == 200 and '已加入' in page and f'/p/{project}/' in page)
+status, page, _ = member.request('/projects/')
+check('approved_project_appears_in_projects', status == 200 and '小组项目' in page and f'/p/{project}/' in page)
 status, page, _ = member.request(f'/p/{project}/units/')
 check('approved_user_can_read_synthetic_materials', status == 200 and '材料与编码单元' in page)
 status, _, _ = member.request(f'/p/{project}/members/')
@@ -100,7 +100,7 @@ status, page, _ = member.request('/login/', {'username': username, 'password': p
 check('self_chosen_password_can_log_back_in', status == 200 and '我的项目' in page)
 member.request('/logout/', {})
 status, page, _ = member.request(f'/p/{project}/units/')
-check('logout_removes_project_access', status == 200 and '登录工作空间' in page)
+check('logout_removes_project_access', status == 200 and '<input' in page and 'name="password"' in page and '<aside class="sidebar">' not in page)
 
 # Preserve a dedicated fictional account for browser QA without printing passwords.
 (ROOT / 'runtime' / 'account-test-credentials.json').write_text(json.dumps({

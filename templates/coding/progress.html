@@ -1,6 +1,6 @@
 {% extends 'base.html' %}
 {% block content %}
-<div class="page-heading heading-row"><div><div class="eyebrow">已保存与已提交分开统计</div><h1>编码进度</h1><p>同一单元在不同批次或由不同成员编码，会分别计数；不是去重后的材料数量。</p></div><div class="button-row"><a class="button secondary" href="{% url 'history' project.id %}">查看我的历史</a><a class="button secondary" href="?page={{ rows.number }}&amp;members_page={{ members_page }}">刷新页面</a></div></div>
+<div class="page-heading heading-row"><div><h1>编码进度</h1><p>同一单元在不同批次或由不同成员编码，会分别计数；不是去重后的材料数量。</p></div><div class="button-row"><a class="button secondary" href="{% url 'history' project.id %}">查看我的历史</a><a class="button secondary" href="?page={{ rows.number }}&amp;members_page={{ members_page }}">刷新页面</a></div></div>
 <div data-progress-endpoint="{% url 'project_progress' project.id %}?page={{ rows.number }}&amp;members_page={{ members_page }}">
 <section aria-label="我的编码进度" data-summary="my"><h2>我的进度</h2><div class="stat-grid">
 <div class="card stat"><span>编码总条数</span><strong data-metric="total">{{ summary.my.total }}</strong><small>个人批次及已分配任务</small></div>

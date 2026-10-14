@@ -90,7 +90,8 @@ status, _, _ = request('/login/', {'username': coder.username, 'password': passw
 check('ordinary_member_login', status == 200 and any(c.name == 'ui_sessionid' for c in cookies))
 quick_url = f'/p/{project.pk}/quick-start/'
 status, page, _ = request(quick_url)
-check('quick_page_is_read_only', status == 200 and '不需要填写任务安排表' in page
+check('quick_page_is_read_only', status == 200 and 'name="book_id"' in page and 'name="token"' in page
+      and '不需要填写任务安排表' not in page
       and not Round.objects.filter(project=project).exists())
 start = {'book_id': book.pk, 'token': str(uuid.uuid4())}
 status, _, _ = request(quick_url, start, csrf=False)

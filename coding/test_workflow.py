@@ -56,7 +56,8 @@ class QuickStartTests(WorkflowFixture, TestCase):
         self.book.refresh_from_db()
         revision = self.book.revision
         response = self.client.get(self.quick_url)
-        self.assertContains(response, '不需要填写任务安排表')
+        self.assertContains(response, '选择编码规则')
+        self.assertNotContains(response, '不需要填写任务安排表')
         self.assertNotContains(response, 'name="coder_ids"')
         self.assertEqual(Round.objects.count(), count)
         self.book.refresh_from_db()
@@ -342,7 +343,8 @@ class HistorySearchTests(WorkflowFixture, TestCase):
         self.assertContains(response, '旧的虚构判断')
         self.assertContains(response, '新的虚构判断')
         self.assertContains(response, 'PLAN · 计划')
-        self.assertContains(response, '依据v1规则')
+        self.assertContains(response, '· v1')
+        self.assertEqual(response.context['record'].round.book.version, 1)
 
     def test_detail_cannot_read_other_person_or_project_record(self):
         other = self.r.assignments.filter(coder=self.owner).first()
@@ -439,7 +441,7 @@ class HistoryCorrectionTests(WorkflowFixture, TestCase):
         self.assertEqual(response.status_code, 200)
         self.a.refresh_from_db()
         self.assertEqual(self.a.status, 'submitted')
-        self.assertContains(response, '已经归档')
+        self.assertContains(response, '已归档')
 
     def test_post_requires_csrf_and_get_does_not_mutate(self):
         self.assertEqual(self.client.get(self.url).status_code, 405)

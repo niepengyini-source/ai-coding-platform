@@ -27,7 +27,7 @@ def current_coding_round(project, user):
 
 
 def coding_assignments(r, user):
-    order = ('unit__record__document_id', 'unit__record__position', 'unit__start', 'id') if r.kind == 'quick' else ('id',)
+    order = ('unit__record__document_id', 'unit__record__position', 'unit__start', 'id')
     return r.assignments.filter(coder=user, superseded=False).select_related('unit__record__document').order_by(*order)
 
 
