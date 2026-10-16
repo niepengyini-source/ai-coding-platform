@@ -21,7 +21,7 @@ def entry(request):
 @login_required
 def projects(request):
     return render(request, 'coding/projects.html', {
-        'workspace_entry': True, 'memberships': _memberships(request.user)})
+        'memberships': _memberships(request.user)})
 
 
 def group_context(request):

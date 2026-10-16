@@ -1,13 +1,97 @@
 {% extends 'base.html' %}
+{% load static %}
 {% block content %}
-<div class="page-heading"><h1>导出中心</h1><p>选择内容和格式。需要自定义时，可勾选字段、修改列名和顺序；这些操作不会修改平台中的原始数据。</p></div>
-<section class="card"><h2>1. 选择要导出的内容</h2><form method="get"><div class="export-source-grid"><p><label for="export-target">导出内容</label><select id="export-target" name="target">{% for value,label in targets %}<option value="{{ value }}" {% if target == value %}selected{% endif %}>{{ label }}</option>{% endfor %}</select></p><p><label for="export-book">编码本版本（导出编码本时选择）</label><select id="export-book" name="book">{% for b in books %}<option value="{{ b.id }}" {% if book.id == b.id %}selected{% elif selected_book == b.id|stringformat:'s' %}selected{% endif %}>v{{ b.version }} · {{ b.title }}</option>{% endfor %}</select></p><p><label for="export-round">编码轮次（导出结果时选择）</label><select id="export-round" name="round"><option value="">— 请选择 —</option>{% for r in rounds %}<option value="{{ r.id }}" {% if round.id == r.id %}selected{% elif selected_round == r.id|stringformat:'s' %}selected{% endif %}>{{ r.name }} · {{ r.get_state_display }}</option>{% endfor %}</select></p></div><p><label class="check-label"><input type="checkbox" name="include_inactive" value="yes" {% if include_inactive %}checked{% endif %}> 导出材料时包含已拆分、合并或排除的历史单元（默认只导出有效单元）</label></p><button class="button secondary" type="submit">显示导出选项</button></form><p class="hint">独立阶段只能导出自己的答案；全员判断和分歧需开放协商后查看。最终数据需完成定稿。Word仅用于编码本。</p></section>
-{% if error %}<div class="notice danger" role="alert">{{ error }}</div>{% endif %}
+<div class="page-heading"><h1>导出中心</h1></div>
+<section class="card">
+  <h2>1. 选择要导出的内容</h2>
+  <form method="get" action="#export-options">
+    <div class="export-source-grid">
+      <p><label for="export-target">导出内容</label><select id="export-target" name="target">{% for value,label in targets %}<option value="{{ value }}" {% if target == value %}selected{% endif %}>{{ label }}</option>{% endfor %}</select></p>
+      <p><label for="export-book">编码本版本（导出编码本时选择）</label><select id="export-book" name="book">{% for b in books %}<option value="{{ b.id }}" {% if book.id == b.id %}selected{% elif selected_book == b.id|stringformat:'s' %}selected{% endif %}>v{{ b.version }} · {{ b.title }}</option>{% endfor %}</select></p>
+      <p><label for="export-round">编码轮次（导出结果时选择）</label><select id="export-round" name="round"><option value="">— 请选择 —</option>{% for r in rounds %}<option value="{{ r.id }}" {% if round.id == r.id %}selected{% elif selected_round == r.id|stringformat:'s' %}selected{% endif %}>{{ r.name }} · {{ r.get_state_display }}</option>{% endfor %}</select></p>
+    </div>
+    <p><label class="check-label"><input type="checkbox" name="include_inactive" value="yes" {% if include_inactive %}checked{% endif %}> 包含已拆分、合并或排除的历史材料单元</label></p>
+    <button class="button secondary" type="submit">下一步：选择导出记录</button>
+  </form>
+</section>
+{% if error %}<div {% if not export_form %}id="export-options"{% endif %} class="notice danger" role="alert">{{ error }}</div>{% endif %}
 {% if export_form %}
-<form method="post" id="export-options">{% csrf_token %}<input type="hidden" name="target" value="{{ target }}">{% if book %}<input type="hidden" name="book" value="{{ book.id }}">{% endif %}{% if round %}<input type="hidden" name="round" value="{{ round.id }}">{% endif %}{% if include_inactive %}<input type="hidden" name="include_inactive" value="yes">{% endif %}
-<section class="card"><h2>2. 选择格式</h2><p>当前内容有<strong>{{ row_count }}</strong>行。{% if not row_count %}尚无数据，可先导出字段模板。{% endif %}</p>{{ export_form.non_field_errors }}<div class="two-columns"><div><p>{{ export_form.format.label_tag }}{{ export_form.format }}{{ export_form.format.errors }}</p><p>{{ export_form.filename.label_tag }}{{ export_form.filename }}{{ export_form.filename.errors }}</p></div><div><p>{{ export_form.encoding.label_tag }}{{ export_form.encoding }}{{ export_form.encoding.errors }}</p><p>{{ export_form.delimiter.label_tag }}{{ export_form.delimiter }}{{ export_form.delimiter.errors }}</p></div></div><p class="hint">Excel、JSON、Word不使用右侧CSV设置。CSV / TSV中可能被软件当成公式的文字会加安全前缀；JSON和Excel保留原文。扩展名由所选格式自动确定，不能只改后缀转换文件。</p></section>
-<section class="card"><h2>3. 自定义字段（不改也可以直接导出）</h2><p class="hint">默认包含全部字段。顺序数字不能重复；空列名沿用原字段名。重新导入编码本时需要代码标识、名称和定义，建议保留这三项及其标准列名。</p>{{ export_form.fields.errors }}<div class="button-row"><button class="button secondary" type="button" data-export-select="all">全选</button><button class="button secondary" type="button" data-export-select="none">取消全选</button></div><div class="table-wrap"><table class="export-fields"><thead><tr><th>导出</th><th>字段含义</th><th>导出列名</th><th>列顺序</th></tr></thead><tbody>{% for row in field_rows %}<tr><td><input type="checkbox" name="fields" value="{{ row.key }}" aria-label="导出{{ row.label }}" {% if row.selected %}checked{% endif %}></td><td>{{ row.label }}<small class="block muted">{{ row.key }}</small></td><td>{{ row.name_field }}{{ row.name_field.errors }}</td><td>{{ row.order_field }}{{ row.order_field.errors }}</td></tr>{% endfor %}</tbody></table></div></section>
-<section class="card"><button class="button" type="submit">下载导出文件</button><p class="hint">导出不等于备份。需要完整研究档案时，请在全部轮次定稿后使用“项目概览 → 下载完整研究归档”。每次最多50000行、300列；更大项目可按轮次分批。</p></section></form>
-<details class="card"><summary>查看数据示例（前3行，尚未应用自定义字段）</summary><div class="table-wrap"><table><thead><tr>{% for h in headers %}<th>{{ h }}</th>{% endfor %}</tr></thead><tbody>{% for row in sample %}<tr>{% for cell in row %}<td>{{ cell|truncatechars:120 }}</td>{% endfor %}</tr>{% empty %}<tr><td>暂时没有数据</td></tr>{% endfor %}</tbody></table></div></details>
+<form method="post" action="#export-options" id="export-options" {% if row_form %}data-export-rows data-row-count="{{ row_count }}"{% endif %}>
+  {% csrf_token %}<input type="hidden" name="target" value="{{ target }}">
+  {% if book %}<input type="hidden" name="book" value="{{ book.id }}">{% endif %}
+  {% if round %}<input type="hidden" name="round" value="{{ round.id }}">{% endif %}
+  {% if include_inactive %}<input type="hidden" name="include_inactive" value="yes">{% endif %}
+  {% if row_form %}
+  <input type="hidden" name="retained_selected" value="{{ retained_selected }}">
+  <input type="hidden" name="visible_ids" value="{{ visible_ids }}">
+  <input type="hidden" name="preview_page" value="{{ row_page.number }}">
+  <section class="card export-records">
+    <h2>2. 选择要导出的记录</h2>
+    {{ row_form.non_field_errors }}
+    <div class="export-row-search">
+      <p>{{ row_form.row_query.label_tag }}{{ row_form.row_query }}{{ row_form.row_query.errors }}</p>
+      <p>{{ row_form.row_match.label_tag }}{{ row_form.row_match }}{{ row_form.row_match.errors }}</p>
+      <button class="button secondary" type="submit" name="action" value="filter" formnovalidate>筛选并预览</button>
+    </div>
+    <details class="export-row-advanced" {% if row_advanced_open %}open{% endif %}>
+      <summary>按组别、时间等原始信息筛选</summary>
+      <div class="export-source-grid">
+        <p>{{ row_form.row_metadata_field.label_tag }}{{ row_form.row_metadata_field }}{{ row_form.row_metadata_field.errors }}</p>
+        <p>{{ row_form.row_metadata_value.label_tag }}{{ row_form.row_metadata_value }}{{ row_form.row_metadata_value.errors }}</p>
+        {% if row_form.row_status %}<p>{{ row_form.row_status.label_tag }}{{ row_form.row_status }}{{ row_form.row_status.errors }}</p>{% endif %}
+      </div>
+      <button class="button secondary" type="submit" name="action" value="filter" formnovalidate>筛选并预览</button>
+    </details>
+    <div class="section-heading export-row-toolbar">
+      <span>找到 <strong>{{ row_count }}</strong> 条{% if row_count != total_row_count %} / 共 {{ total_row_count }} 条{% endif %}</span>
+      <div class="button-row"><button class="button secondary" type="button" data-export-row-select="all">勾选本页</button><button class="button secondary" type="button" data-export-row-select="none">取消本页</button><button class="text-button" type="button" data-export-row-select="clear">清空全部勾选</button></div>
+    </div>
+    <div class="table-wrap">
+      <table class="export-row-table">
+        <thead><tr><th>选择</th><th>语句与编码</th><th>原始信息</th></tr></thead>
+        <tbody>{% for record in row_preview %}<tr>
+          <td><input type="checkbox" name="selected" value="{{ record.key }}" aria-label="选择记录 {{ record.key }}" {% if record.checked %}checked{% endif %}></td>
+          <td><small class="block muted">记录 {{ record.key }}{% if record.position %} · 材料第 {{ record.position }} 条{% endif %}{% if record.coder %} · {{ record.coder }}{% endif %}{% if record.status %} · {{ record.status }}{% endif %}</small>
+            {% if record.text|length > 180 %}<details class="export-statement"><summary>{{ record.text|truncatechars:180 }}</summary><div>{{ record.text }}</div></details>{% else %}<div class="export-statement">{{ record.text }}</div>{% endif %}
+            <div class="export-code-summary">主代码：{{ record.primary|default:'—' }}{% if record.secondary %}<span>次代码：{{ record.secondary }}</span>{% endif %}</div>
+          </td>
+          <td class="export-original">{% if record.metadata|length > 180 %}<details><summary>{{ record.metadata|truncatechars:180 }}</summary><div>{{ record.metadata }}</div></details>{% else %}{{ record.metadata|default:'—' }}{% endif %}</td>
+        </tr>{% empty %}<tr><td colspan="3">暂无符合条件的记录，可调整筛选条件。</td></tr>{% endfor %}</tbody>
+      </table>
+    </div>
+    {% if row_page.has_other_pages %}<nav class="export-row-pagination" aria-label="导出记录分页">
+      {% if row_page.has_previous %}<button class="button secondary" type="submit" name="row_page" value="{{ row_page.previous_page_number }}" formnovalidate>上一页</button>{% endif %}
+      <span>第 {{ row_page.number }} / {{ row_page.paginator.num_pages }} 页</span>
+      {% if row_page.has_next %}<button class="button secondary" type="submit" name="row_page" value="{{ row_page.next_page_number }}" formnovalidate>下一页</button>{% endif %}
+    </nav>{% endif %}
+    <div class="export-row-range">
+      <p>{{ row_form.selection.label_tag }}{{ row_form.selection }}{{ row_form.selection.errors }}</p>
+      <p data-export-row-limit>{{ row_form.limit.label_tag }}{{ row_form.limit }}{{ row_form.limit.errors }}</p>
+    </div>
+    <p class="hint">前 N 条按上方材料顺序选取；逐条勾选可跨页保留。重新筛选会清空勾选。</p>
+    <p class="hint" data-export-row-summary role="status" aria-live="polite">已勾选 {{ selected_count }} 条，可跨页勾选。更改筛选条件后，勾选会清空。</p>
+  </section>
+  {% endif %}
+  <section class="card">
+    <h2>{% if row_form %}3{% else %}2{% endif %}. 选择格式</h2>
+    {% if not row_form %}<p>当前内容有 <strong>{{ row_count }}</strong> 行。{% if not row_count %}尚无数据，可先导出字段模板。{% endif %}</p>{% endif %}
+    {{ export_form.non_field_errors }}
+    <div class="two-columns">
+      <div><p>{{ export_form.format.label_tag }}{{ export_form.format }}{{ export_form.format.errors }}</p><p>{{ export_form.filename.label_tag }}{{ export_form.filename }}{{ export_form.filename.errors }}</p></div>
+      <div><p>{{ export_form.encoding.label_tag }}{{ export_form.encoding }}{{ export_form.encoding.errors }}</p><p>{{ export_form.delimiter.label_tag }}{{ export_form.delimiter }}{{ export_form.delimiter.errors }}</p></div>
+    </div>
+    <p class="hint">{% if row_form %}语句、编码和原始附加信息默认一并导出。{% endif %}CSV设置仅用于CSV / TSV。</p>
+  </section>
+  <details class="card" {% if export_form.errors %}open{% endif %}>
+    <summary>自定义字段（不改也可以直接导出）</summary>
+    <p class="hint">默认包含全部字段。可取消不需要的列，或修改列名与顺序。顺序数字不能重复。</p>
+    {{ field_errors }}
+    <div class="button-row"><button class="button secondary" type="button" data-export-select="all">全选</button><button class="button secondary" type="button" data-export-select="none">取消全选</button></div>
+    <div class="table-wrap"><table class="export-fields"><thead><tr><th>导出</th><th>字段含义</th><th>导出列名</th><th>列顺序</th></tr></thead><tbody>{% for row in field_rows %}<tr><td><input type="checkbox" name="fields" value="{{ row.key }}" aria-label="导出{{ row.label }}" {% if row.selected %}checked{% endif %}></td><td>{{ row.label }}<small class="block muted">{{ row.key }}</small></td><td>{{ row.name_field }}{{ row.name_field.errors }}</td><td>{{ row.order_field }}{{ row.order_field.errors }}</td></tr>{% endfor %}</tbody></table></div>
+  </details>
+  <section class="card"><button class="button" type="submit" name="action" value="download">下载导出文件</button><p class="hint">每次最多导出50000条记录、300列。</p></section>
+</form>
+{% if not row_form %}<details class="card"><summary>查看数据示例（前3行，尚未应用自定义字段）</summary><div class="table-wrap"><table><thead><tr>{% for h in headers %}<th>{{ h }}</th>{% endfor %}</tr></thead><tbody>{% for row in sample %}<tr>{% for cell in row %}<td>{{ cell|truncatechars:120 }}</td>{% endfor %}</tr>{% empty %}<tr><td>暂时没有数据</td></tr>{% endfor %}</tbody></table></div></details>{% endif %}
+<script src="{% static 'export_rows.js' %}" defer></script>
 {% endif %}
 {% endblock %}

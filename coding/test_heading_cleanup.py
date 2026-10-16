@@ -76,7 +76,7 @@ class HeadingCleanupTests(TestCase):
 
     def test_exports_keeps_download_controls_and_version_selector(self):
         response = self.clean_page(f'/p/{self.project.id}/exports/', '导出中心')
-        for text in ['显示导出选项', '下载导出文件', '选择格式',
+        for text in ['下一步：选择导出记录', '下载导出文件', '选择格式',
                      '自定义字段', f'v{self.book.version} · {self.book.title}']:
             self.assertContains(response, text)
         self.assertNotContains(response, '下载到你的电脑')

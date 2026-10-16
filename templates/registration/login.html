@@ -1,5 +1,5 @@
 {% extends 'base.html' %}{% block title %}登录 · AI辅助编码平台{% endblock %}{% block content %}
 <section class="card workspace-auth"><nav class="workspace-auth-tabs" aria-label="账号操作"><span aria-current="page">登录</span>{% if registration_open %}<a href="{% url 'register' %}">注册</a>{% endif %}</nav><h1>登录</h1>
 <form method="post">{% csrf_token %}{{ form.as_p }}{% if next %}<input type="hidden" name="next" value="{{ next }}">{% endif %}<button class="button full" type="submit">登录</button></form>
-{% if registration_open %}<div class="auth-switch">还没有账号？<a href="{% url 'register' %}">注册账号</a></div>{% else %}<p class="hint">请联系项目负责人添加账号。</p>{% endif %}</section>
+{% if not registration_open %}<p class="hint">请联系项目负责人添加账号。</p>{% endif %}</section>
 {% endblock %}

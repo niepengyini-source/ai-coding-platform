@@ -82,8 +82,8 @@ status, body, _ = request('/login/', {'username': owner.username, 'password': pa
 check('home_two_modules_no_sidebar', status == 200 and '我的项目'.encode() in body and '加入小组'.encode() in body
       and b'<aside class="sidebar">' not in body)
 status, body, _ = request('/projects/')
-check('projects_times_and_small_create', status == 200 and '创建时间'.encode() in body and '最后更新'.encode() in body
-      and b'<aside class="sidebar">' not in body and f'/p/{project.pk}/'.encode() in body)
+check('projects_sidebar_times_and_small_create', status == 200 and '创建时间'.encode() in body and '最后更新'.encode() in body
+      and b'<aside class="sidebar">' in body and b'id="page-back"' in body and f'/p/{project.pk}/'.encode() in body)
 status, body, _ = request(f'/p/{project.pk}/')
 check('subsequent_page_has_sidebar', status == 200 and b'<aside class="sidebar">' in body)
 status, body, _ = request(f'/r/{round_.pk}/?a={focus.pk}')

@@ -19,6 +19,7 @@ from .codebook_files import (FIELDS, MAX_BYTES, parse_codebook, normalized_codes
 from .file_forms import CodebookMappingForm, ExportOptionsForm
 from .exporting import annotation_table, final_table, disagreement_table, unit_table, book_table, export_response, MAX_EXPORT_ROWS
 from .workflow import visible_rounds
+from .export_rows import ExportRowsForm, table_records, filter_records, selected_record_ids
 
 
 def draft_for(request, book, draft_id):
@@ -223,16 +224,55 @@ def exports(request, project_id):
                'include_inactive': params.get('include_inactive') == 'yes'}
     try:
         table, book, r = export_table_for(request, project, role, params)
-        context.update(book=book, round=r, table=table, row_count=len(table.rows))
+        context.update(book=book, round=r, table=table, row_count=len(table.rows), total_row_count=len(table.rows))
+        download = request.method == 'POST' and params.get('action', 'download') == 'download' and 'row_page' not in params
+        selected_rows = table.rows
+        rows_valid = True
+        if not book:
+            records = list(table_records(table))
+            row_form = ExportRowsForm(params, table=table, records=records, download=download)
+            rows_valid = row_form.is_valid()
+            search_valid = not any(key.startswith('row_') for key in row_form.errors)
+            filtered = filter_records(records, row_form.cleaned_data) if search_valid else []
+            selected = set()
+            if request.method == 'POST' and params.get('action') != 'filter' and search_valid:
+                try:
+                    selected = selected_record_ids(params, {record['key'] for record in filtered})
+                except ValueError as error:
+                    row_form.add_error(None, str(error))
+                    rows_valid = False
+            page_number = 1 if params.get('action') == 'filter' else params.get('row_page', params.get('preview_page', '1'))
+            page = Paginator(filtered, 25).get_page(page_number)
+            preview = list(page.object_list)
+            for record in preview:
+                record['checked'] = record['key'] in selected
+            selection = row_form.cleaned_data.get('selection', 'all')
+            if selection == 'selected':
+                selected_rows = [record['row'] for record in filtered if record['key'] in selected]
+                if download and rows_valid and not selected:
+                    row_form.add_error(None, '请先勾选要导出的记录。')
+                    rows_valid = False
+            elif selection == 'first':
+                selected_rows = [record['row'] for record in filtered[:row_form.cleaned_data.get('limit') or 0]]
+            else:
+                selected_rows = [record['row'] for record in filtered]
+            context.update(row_form=row_form, row_page=page, row_preview=preview, row_count=len(filtered),
+                           selected_count=len(selected), retained_selected=','.join(sorted(selected)),
+                           visible_ids=','.join(record['key'] for record in preview),
+                           row_advanced_open=bool(params.get('row_metadata_field') or params.get('row_metadata_value') or
+                                                  params.get('row_status')))
         form = ExportOptionsForm(request.POST if request.method == 'POST' else None, table=table, is_book=bool(book),
                 initial={'format': 'xlsx', 'filename': f'{project.name}_{table.title or context["target"]}'[:100],
                          'encoding': 'utf-8-sig', 'delimiter': ',', 'fields': table.headers})
-        if request.method == 'POST' and form.is_valid():
+        if download and rows_valid and form.is_valid():
             values = form.cleaned_data
             fields, labels = [p[1] for p in form.selection], [p[2] for p in form.selection]
-            return export_response(table, fields, labels, values['format'], values['filename'], encoding=values['encoding'],
+            from .exporting import ExportTable
+            chosen = ExportTable(table.headers, selected_rows, table.title, table.policy)
+            return export_response(chosen, fields, labels, values['format'], values['filename'], encoding=values['encoding'],
                                    delimiter=values['delimiter'], is_book=bool(book))
-        context.update(export_form=form, field_rows=form.field_rows(), sample=table.rows[:3], headers=table.headers)
+        context.update(export_form=form, field_rows=form.field_rows(), field_errors=form['fields'].errors,
+                       sample=table.rows[:3], headers=table.headers)
     except (ValueError, TypeError, OperationalError) as error:
         context['error'] = str(error) if not isinstance(error, OperationalError) else '数据库正在忙，请稍后重试导出。'
     return render(request, 'coding/exports.html', context)

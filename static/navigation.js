@@ -1,12 +1,12 @@
 'use strict';
 (() => {
   const button = document.getElementById('page-back');
-  if (!button) return;
   const hint = document.getElementById('page-back-hint');
   const identity = document.body.dataset.navigationUser || 'anonymous';
   const storageKey = 'ai-coding-platform:navigation:v1:' + identity;
   const current = location.pathname + location.search;
   const allowedPage = /^\/(?:$|login\/$|guide\/$|accounts\/(?:register|password(?:\/done)?)\/$|groups\/join\/$|projects\/(?:new\/)?$|p\/\d+\/(?:$|members\/$|materials\/$|units\/$|exports\/$|archive\/$|quick-start\/$|progress\/$|history\/(?:\d+\/)?$|books\/(?:new|\d+(?:\/import)?)\/$|rounds\/new\/$)|r\/\d+\/(?:$|review\/$|disagreements\/$|report\/$))/;
+  const authPage = path => /^\/(?:login|accounts\/register)\/(?:\?|$)/.test(path);
   const safePath = value => {
     if (typeof value !== 'string' || !value.startsWith('/') || value.startsWith('//') || value.length > 4000) return null;
     try {
@@ -14,12 +14,12 @@
       return url.origin === location.origin && !url.hash && allowedPage.test(url.pathname) ? url.pathname + url.search : null;
     } catch (_) { return null; }
   };
-  const fallback = safePath(button.getAttribute('href')) || (identity === 'anonymous' ? '/login/' : '/');
+  const fallback = safePath(button?.getAttribute('href')) || (identity === 'anonymous' ? '/login/' : '/');
   let stack = [], target = fallback;
   const load = () => {
     try {
       const saved = JSON.parse(sessionStorage.getItem(storageKey));
-      return Array.isArray(saved) ? saved.filter(path => safePath(path) === path).slice(-50) : [];
+      return Array.isArray(saved) ? saved.filter(path => safePath(path) === path && !authPage(path)).slice(-50) : [];
     } catch (_) { return []; }
   };
   const store = value => {
@@ -27,8 +27,11 @@
   };
   function refresh(traversal = false) {
     stack = load();
+    // The chooser is a fresh start, including after a new login. Public forms are not work history.
+    if (identity === 'anonymous' || authPage(current) || location.pathname === '/') stack = [];
     // A real browser Back may restore a cached document; align the logical path stack.
-    if (traversal && stack.length > 1 && stack[stack.length - 2] === current) stack.pop();
+    const restoredIndex = stack.lastIndexOf(current);
+    if (traversal && restoredIndex >= 0) stack = stack.slice(0, restoredIndex + 1);
     const bookPage = location.pathname.match(/^\/p\/(\d+)\/books\/\d+\/$/);
     if (bookPage) {
       // Leaving a completed/cancelled import returns to the working page, not a wizard
@@ -37,12 +40,14 @@
       const importPage = new RegExp('^/p/' + bookPage[1] + '/books/\\d+/import/(?:\\?|$)');
       while (stack.length && importPage.test(stack[stack.length - 1])) stack.pop();
     }
-    if (safePath(current) && stack[stack.length - 1] !== current) stack.push(current);
+    if (identity !== 'anonymous' && !authPage(current) && safePath(current) && stack[stack.length - 1] !== current) stack.push(current);
     stack = stack.slice(-50);
     store(stack);
     // Completing a password change should not reopen the password-entry form.
-    target = [...stack.slice(0, -1)].reverse().find(path => path !== current &&
+    const previous = stack[stack.length - 1] === current ? stack.slice(0, -1) : stack;
+    target = [...previous].reverse().find(path => path !== current &&
       !(current === '/accounts/password/done/' && path === '/accounts/password/')) || fallback;
+    if (!button) return;
     const disabled = target === current;
     button.setAttribute('href', target);
     button.setAttribute('aria-disabled', String(disabled));
@@ -51,6 +56,7 @@
   }
   refresh(performance.getEntriesByType('navigation')[0]?.type === 'back_forward');
   window.addEventListener('pageshow', event => { if (event.persisted) refresh(true); });
+  if (!button) return;
   button.addEventListener('click', event => {
     event.preventDefault();
     if (button.getAttribute('aria-disabled') === 'true') return;
@@ -61,7 +67,7 @@
     }
     hint.textContent = '';
     // Explicit GET navigation avoids reposting earlier forms or opening an external site.
-    const previousIndex = stack.lastIndexOf(target, stack.length - 2);
+    const previousIndex = stack.lastIndexOf(target);
     store(previousIndex >= 0 ? stack.slice(0, previousIndex + 1) : [target]);
     location.assign(target);
   });

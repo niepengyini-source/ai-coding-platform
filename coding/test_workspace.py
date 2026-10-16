@@ -69,8 +69,10 @@ class WorkspaceTests(TestCase):
         self.assertContains(response, 'href="/projects/new/"', count=1)
         self.assertContains(response, 'workspace-create')
         self.assertNotContains(response, 'workspace-modules')
-        self.assertNotContains(response, '<aside class="sidebar">')
+        self.assertContains(response, '<aside class="sidebar">', count=1)
         self.assertNotContains(response, self.project.name)
+        self.assertContains(response, 'id="page-back"', count=1)
+        self.assertContains(response, 'href="/">← 返回上一页')
 
     def test_owned_and_joined_projects_show_creation_and_update_times(self):
         Membership.objects.create(project=self.group, user=self.owner, role='coder')
@@ -84,7 +86,9 @@ class WorkspaceTests(TestCase):
         self.assertContains(response, 'href="/projects/new/"', count=1)
         self.assertNotContains(response, 'workspace-create')
         self.assertNotContains(response, 'workspace-modules')
-        self.assertNotContains(response, '<aside class="sidebar">')
+        self.assertContains(response, '<aside class="sidebar">', count=1)
+        self.assertContains(response, 'id="page-back"', count=1)
+        self.assertContains(response, 'href="/">← 返回上一页')
 
     def test_pending_application_does_not_make_project_visible(self):
         ProjectJoinRequest.objects.create(project=self.group, user=self.owner)
