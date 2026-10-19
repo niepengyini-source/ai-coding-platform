@@ -32,8 +32,11 @@ def coding_assignments(r, user):
 
 
 def next_coding_url(a):
-    next_entry = coding_assignments(a.round, a.coder).filter(status='draft').exclude(pk=a.pk).first()
-    return (reverse('workbench', args=[a.round_id]) + '?a=' + str(next_entry.pk) if next_entry else
+    entries = list(coding_assignments(a.round, a.coder).values_list('pk', 'status'))
+    index = next((i for i, (pk, _) in enumerate(entries) if pk == a.pk), len(entries))
+    following = entries[index + 1:] + entries[:index]
+    next_id = next((pk for pk, status in following if status == 'draft'), None)
+    return (reverse('workbench', args=[a.round_id]) + '?a=' + str(next_id) if next_id else
             reverse('progress', args=[a.round.project_id]))
 
 

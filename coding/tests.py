@@ -321,8 +321,9 @@ class PlatformTests(Helpers, TestCase):
         self.assertEqual(bytes(doc.raw), raw)
         self.assertEqual(doc.records.count(), 2)
         self.assertEqual(Unit.objects.filter(record__document=doc).count(), 1)
-        result = self.client.post(url, {'draft_id': str(draft.id), 'text_column': 'body', 'context_column': 'custom_group'})
+        result = self.client.post(url, {'draft_id': str(draft.id), 'text_column': 'body', 'context_column': 'custom_group'}, follow=True)
         self.assertContains(result, '已导入')
+        self.assertContains(result, '新增 0 个编码单元，跳过 2 条完全重复记录')
         self.assertEqual(SourceDocument.objects.filter(name='custom.csv').count(), 1)
 
     def test_context_excludes_other_interview(self):
@@ -427,7 +428,7 @@ class PlatformTests(Helpers, TestCase):
         self.client.force_login(self.owner)
         response = self.client.get(f'/api/rounds/{self.r.id}/progress/')
         self.assertEqual(response.status_code, 200)
-        self.assertEqual(set(response.json()), {'state', 'my_total', 'my_done', 'total', 'done'})
+        self.assertEqual(set(response.json()), {'state', 'my_total', 'my_done', 'my_remaining', 'next_unfinished_url', 'total', 'done'})
         self.assertNotContains(response, 'SECRET_PROGRESS')
         self.client.force_login(self.outsider)
         self.assertEqual(self.client.get(f'/api/rounds/{self.r.id}/progress/').status_code, 404)

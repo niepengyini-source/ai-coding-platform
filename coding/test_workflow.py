@@ -56,7 +56,7 @@ class QuickStartTests(WorkflowFixture, TestCase):
         self.book.refresh_from_db()
         revision = self.book.revision
         response = self.client.get(self.quick_url)
-        self.assertContains(response, '选择编码规则')
+        self.assertContains(response, '确认编码准备')
         self.assertNotContains(response, '不需要填写任务安排表')
         self.assertNotContains(response, 'name="coder_ids"')
         self.assertEqual(Round.objects.count(), count)
@@ -103,11 +103,12 @@ class QuickStartTests(WorkflowFixture, TestCase):
     def test_empty_book_or_missing_material_is_rejected_without_partial_round(self):
         empty = Codebook.objects.create(project=self.project, version=2)
         response, _ = self.quick(book_id=empty.pk)
-        self.assertEqual(response.status_code, 200)
+        self.assertRedirects(response, f'/p/{self.project.pk}/books/{empty.pk}/')
         self.assertEqual(Round.objects.filter(kind='quick').count(), 0)
+        Code.objects.create(book=empty, key='READY', name='虚构规则', definition='准备好规则后单独验证没有材料的情况')
         Unit.objects.filter(record__document__project=self.project).update(active=False)
-        response, _ = self.quick()
-        self.assertContains(response, '请先导入材料')
+        response, _ = self.quick(book_id=empty.pk)
+        self.assertRedirects(response, f'/p/{self.project.pk}/units/')
         self.assertEqual(Round.objects.filter(kind='quick').count(), 0)
 
     def test_foreign_book_and_invalid_token_are_rejected(self):

@@ -337,3 +337,31 @@ test('uncertain requests disable local Undo and Cancel so retries retain the ori
   ui.undoButton.handlers.click();ui.cancelButton.handlers.click();ui.select(0,1);
   assert.equal(ui.pieces.length,2);assert.equal(ui.first.textContent,'甲乙');assert.equal(calls,1);
 });
+
+test('split preview emits pause and resume hooks without exiting persistent quick mode',()=>{
+  const ui=setup(async()=>reply(),{hasSelection:false});
+  const transitions=[];ui.form.dataset.quickMode='true';
+  ui.window.addEventListener('platform:split-preview-change',()=>transitions.push(ui.form.dataset.splitPreview));
+  ui.previewButton.handlers.click();ui.select(0,3);ui.select(3,5);ui.undoButton.handlers.click();
+  assert.equal(ui.form.dataset.quickMode,'true');assert.deepEqual(transitions,['true']);
+  ui.cancelButton.handlers.click();
+  assert.equal(ui.form.dataset.quickMode,'true');assert.deepEqual(transitions,['true','false']);
+});
+
+test('successful and failed split confirmations keep quick mode for continuing after navigation or cancel',async()=>{
+  for(const fails of [false,true]) {
+    const ui=setup(async()=>fails?reply(400,{error:'选区无效'}):reply());
+    ui.form.dataset.quickMode='true';ui.previewButton.handlers.click();await ui.confirmButton.handlers.click();
+    assert.equal(ui.form.dataset.quickMode,'true');
+    if(fails){ui.cancelButton.handlers.click();assert.equal(ui.form.dataset.splitPreview,'false');}
+    else assert.deepEqual(ui.destinations,['/r/1/?a=2']);
+  }
+});
+
+test('an active restore request blocks split actions until it finishes',()=>{
+  const ui=setup(async()=>reply(),{hasSelection:false});
+  ui.form.dataset.splitting='true';ui.window.dispatchEvent(new ui.Event('platform:unit-operation-change'));
+  assert.equal(ui.previewButton.disabled,true);ui.previewButton.handlers.click();assert.equal(ui.modeControls.hidden,true);
+  ui.form.dataset.splitting='false';ui.window.dispatchEvent(new ui.Event('platform:unit-operation-change'));
+  assert.equal(ui.previewButton.disabled,false);ui.previewButton.handlers.click();assert.equal(ui.modeControls.hidden,false);
+});

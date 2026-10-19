@@ -110,7 +110,7 @@ class WorkpadTests(TestCase):
             self.assertEqual(a.secondary,old['secondary'])
             self.assertEqual(a.note,old['note'])
             self.assertFalse(history_permissions(a,self.coder,'coder')['editable'])
-            self.assertContains(self.client.get(f'/p/{self.project.pk}/history/{a.pk}/'),'原记录已拆分')
+            self.assertContains(self.client.get(f'/p/{self.project.pk}/history/{a.pk}/'),'历史单元已停用')
             with self.assertRaises(ValueError):
                 self.save(a)
 

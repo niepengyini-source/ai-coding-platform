@@ -43,14 +43,38 @@ def progress_data(project, user, role, params):
 @login_required
 def coding_entry(request, project_id):
     project, role = access(request, project_id, ['owner', 'reviewer', 'coder'])
+    missing = missing_coding_resources(request, project, role)
+    if missing:
+        return missing
     r = current_coding_round(project, request.user)
     return redirect('workbench', r.pk) if r else redirect('quick_start', project.pk)
+
+
+def missing_coding_resources(request, project, role):
+    if not Unit.objects.filter(record__document__project=project, active=True).exists():
+        instruction = '请先导入编码材料。' if role in ('owner', 'reviewer') else '请联系负责人导入编码材料。'
+        messages.warning(request, '尚未导入有效编码单元，' + instruction, extra_tags='setup-materials')
+        return redirect('materials' if role in ('owner', 'reviewer') else 'units', project.pk)
+    book = project.codebooks.first()
+    if not book:
+        messages.warning(request, '项目缺少初始编码本，请联系平台维护者恢复后导入编码规则。')
+        return render(request, 'coding/quick_start.html', {'project': project, 'role': role,
+                                                        'has_books': False, 'missing_book': True})
+    if not book.codes.exists():
+        instruction = '请先导入编码本或添加代码。' if role in ('owner', 'reviewer') else '请联系负责人导入编码本或添加代码。'
+        messages.warning(request, '当前项目还没有可用的编码规则，' + instruction, extra_tags='setup-codebook')
+        return redirect('codebook', project.pk, book.pk)
+    return None
 
 
 @login_required
 def quick_start(request, project_id):
     project, role = access(request, project_id, ['owner', 'reviewer', 'coder'])
-    books = project.codebooks.filter(codes__isnull=False).distinct()
+    missing = missing_coding_resources(request, project, role)
+    if missing:
+        return missing
+    current = project.codebooks.first()
+    books = project.codebooks.filter(pk=current.pk, codes__isnull=False).distinct() if current else project.codebooks.none()
     default = books.first()
     form = QuickStartForm(request.POST if request.method == 'POST' else None, project=project,
                           initial={'book_id': default.pk if default else None, 'token': uuid.uuid4()})
@@ -62,12 +86,13 @@ def quick_start(request, project_id):
             return redirect('workbench', r.pk)
         except (ValueError, OperationalError) as error:
             form.add_error(None, '数据库正在忙，请稍后用同一页面重试。' if isinstance(error, OperationalError) else str(error))
-    selected = books.filter(pk=form['book_id'].value()).first() if str(form['book_id'].value()).isdecimal() else default
+    selected = default
     resume = (Round.objects.filter(project=project, book=selected, kind='quick', started_by=request.user,
                                    state='active').order_by('-id').first()) if selected else None
     return render(request, 'coding/quick_start.html', {'project': project, 'role': role, 'form': form,
         'unit_count': Unit.objects.filter(record__document__project=project, active=True).count(),
-        'selected_book': selected, 'has_books': books.exists(), 'resume': resume})
+        'selected_book': selected, 'code_count': selected.codes.count() if selected else 0,
+        'has_books': bool(selected), 'resume': resume})
 
 
 @require_POST
@@ -140,8 +165,13 @@ def history(request, project_id):
 
 
 def history_context(request, project, role, a, reopen_form=None):
-    code_map = {c.pk: str(c) for c in a.round.book.codes.all()}
     events = Paginator(annotation_events(a), 20).get_page(request.GET.get('page'))
+    code_ids = {a.primary_id, *a.secondary}
+    for event in events:
+        for source in (event.before, event.after):
+            code_ids.update([source.get('primary'), *source.get('secondary', [])])
+    code_map = {c.pk: str(c) for c in Code.objects.filter(book__project=project,
+                pk__in=[pk for pk in code_ids if type(pk) is int])}
     for event in events:
         for name in ('before', 'after'):
             source = getattr(event, name)

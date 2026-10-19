@@ -71,25 +71,41 @@ def validate_labels(book, data, submitting=True):
 def import_records(project, actor, draft, rows, text_column, context_column, sheet_name=''):
     Project.objects.select_for_update().get(pk=project.pk)
     digest = hashlib.sha256(bytes(draft.raw)).hexdigest()
-    if SourceDocument.objects.filter(project=project, sha256=digest, sheet_name__in=['', sheet_name]).exists():
-        raise ValueError('该文件已导入，未重复增加记录。')
+    previous = SourceDocument.objects.filter(project=project, sha256=digest, sheet_name__in=['', sheet_name]).first()
+    if previous:
+        previous.import_counts = {'records': 0, 'units': 0, 'skipped': len(rows)}
+        audit(project, actor, 'import.skipped', previous, after=previous.import_counts,
+              reason='文件已导入，保留原有材料和编码。')
+        return previous
     doc = SourceDocument.objects.create(project=project, name=Path(draft.filename).name,
         raw=draft.raw, sha256=digest, text_column=text_column, context_column=context_column, sheet_name=sheet_name,
-        import_note='保留原始文件字节和所有原始列；空白文本不生成编码单元；不自动删除重复文字。')
+        import_note='保留原始文件字节和所有原始列；空白文本不生成编码单元；原文和全部原始信息完全相同时保留已有记录。')
+    def identity(text, metadata):
+        # File names and generated row positions are provenance, not source fields.
+        return hashlib.sha256(json.dumps([text, metadata], ensure_ascii=False, sort_keys=True,
+                                         separators=(',', ':')).encode('utf-8')).digest()
+    seen = {identity(text, metadata) for text, metadata in
+            SourceRecord.objects.filter(document__project=project).values_list('text', 'metadata').iterator()}
     records = []
+    skipped = 0
     for pos, row in enumerate(rows, 1):
         context_value = str(row.get(context_column, '')) if context_column else ''
         if len(context_value) > 450:
             raise ValueError('上下文分组值最长450个字符，不能静默截断后合并不同材料。')
+        metadata = {k: v for k, v in row.items() if k != text_column}
+        signature = identity(row[text_column], metadata)
+        if signature in seen:
+            skipped += 1
+            continue
+        seen.add(signature)
         context_key = ('value:' + context_value if context_value.strip() else f'missing:{pos}') if context_column else ''
         records.append(SourceRecord(document=doc, position=pos, text=row[text_column],
-            metadata={k: v for k, v in row.items() if k != text_column},
-            context_key=context_key))
+                                    metadata=metadata, context_key=context_key))
     SourceRecord.objects.bulk_create(records)
     Unit.objects.bulk_create([Unit(record=r, text=r.text, start=0, end=len(r.text)) for r in records if r.text.strip()])
-    audit(project, actor, 'import', doc, after={'records': len(records), 'units': sum(bool(r.text.strip()) for r in records),
-                                              'text_column': text_column, 'context_column': context_column,
-                                              'sheet_name': sheet_name})
+    doc.import_counts = {'records': len(records), 'units': sum(bool(r.text.strip()) for r in records), 'skipped': skipped}
+    audit(project, actor, 'import', doc, after={**doc.import_counts, 'text_column': text_column,
+                                              'context_column': context_column, 'sheet_name': sheet_name})
     return doc
 
 
@@ -108,7 +124,9 @@ def clone_book(project, actor, source, title, policy, change_note):
             if old.parent_id:
                 mapping[old.id].parent = mapping[old.parent_id]
                 mapping[old.id].save(update_fields=['parent'])
-    audit(project, actor, 'codebook.new_version', book, after={'version': version, 'from': source.pk if source else None}, reason=change_note)
+    audit(project, actor, 'codebook.new_version', book,
+          after={'version': version, 'from': source.pk if source else None,
+                 'code_map': {str(old_id): code.pk for old_id, code in mapping.items()} if source else {}}, reason=change_note)
     return book
 
 
@@ -186,6 +204,8 @@ def save_assignment(assignment_id, actor, data):
     ref = Assignment.objects.only('round_id').get(pk=assignment_id, coder=actor)
     r = Round.objects.select_for_update().get(pk=ref.round_id)
     a = Assignment.objects.select_for_update().get(pk=assignment_id, coder=actor)
+    if ('book_id' in data or r.sampling.get('rules_updated')) and data.get('book_id') != r.book_id:
+        raise Conflict('编码规则已更新。你的输入仍保留，请刷新后核对当前规则再保存。')
     if a.superseded:
         raise Conflict('原任务已拆分，请在新单元上编码；原记录保留但不能覆盖。')
     token = str(data.get('token', ''))
@@ -214,6 +234,8 @@ def save_assignment(assignment_id, actor, data):
 @transaction.atomic
 def save_decision(r, unit, actor, data):
     r = Round.objects.select_for_update().get(pk=r.pk)
+    if ('book_id' in data or r.sampling.get('rules_updated')) and data.get('book_id') != r.book_id:
+        raise Conflict('编码规则已更新，请刷新并核对当前规则。')
     if r.state != 'review':
         raise Conflict('本轮不处于协商阶段。')
     current = Decision.objects.filter(round=r, unit=unit).first()

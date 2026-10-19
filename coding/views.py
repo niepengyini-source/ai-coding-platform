@@ -11,6 +11,7 @@ from django.db import transaction, OperationalError
 from django.db.models import F
 from django.http import JsonResponse, HttpResponse, Http404
 from django.shortcuts import get_object_or_404, redirect, render
+from django.urls import reverse
 from django.utils import timezone
 from django.views.decorators.http import require_POST
 from .models import *
@@ -23,8 +24,9 @@ from .reviewing import disagreement_rows
 from .account_forms import InvitationForm, JoinReviewForm
 from .group_services import mark_approved
 from .workflow import visible_rounds, current_coding_round, coding_assignments, next_coding_url
-from .splitting import split_personal, suggest_split
+from .splitting import split_personal, suggest_split, split_restore_options
 from .context import context_page
+from .book_updates import begin_update, apply_book_update
 
 
 def access(request, project_id, roles=None):
@@ -224,8 +226,9 @@ def materials(request, project_id):
                 try:
                     if text_col not in headers or (context_col and (context_col not in headers or context_col == text_col)):
                         raise ValueError('请选择有效且不同的文本列和上下文分组列。')
-                    import_records(project, request.user, draft, rows, text_col, context_col, sheet)
-                    messages.success(request, '材料已导入。')
+                    imported = import_records(project, request.user, draft, rows, text_col, context_col, sheet)
+                    counts = imported.import_counts
+                    messages.success(request, f'材料已导入：新增 {counts["units"]} 个编码单元，跳过 {counts["skipped"]} 条完全重复记录。原有材料和编码保持不变。')
                     return redirect('units', project.id)
                 except (ValueError, OperationalError) as exc:
                     preview_error = str(exc) if not isinstance(exc, OperationalError) else '数据库忙，未确认导入成功，请稍后重试。'
@@ -309,6 +312,9 @@ def change_unit(request, project_id, unit_id):
 def codebook(request, project_id, book_id):
     project, role = access(request, project_id)
     book = get_object_or_404(Codebook, project=project, pk=book_id)
+    if request.method == 'POST' and book.pk != project.codebooks.first().pk:
+        messages.error(request, '只能编辑当前编码本，历史规则只读保留。')
+        return redirect('codebook', project.pk, project.codebooks.first().pk)
     if request.method == 'POST' and book.frozen:
         messages.error(request, '该版本已经冻结，请复制成新版本再修改。')
         return redirect('codebook', project.id, book.id)
@@ -322,7 +328,9 @@ def codebook(request, project_id, book_id):
             with transaction.atomic():
                 Project.objects.select_for_update().get(pk=project.id)
                 locked = Codebook.objects.select_for_update().get(pk=book.id)
-                if locked.frozen:
+                if locked.pk != project.codebooks.first().pk:
+                    form.add_error(None, '当前编码本已变化，请打开最新编码本后再编辑。')
+                elif locked.frozen:
                     form.add_error(None, '该版本已经冻结，请复制成新版本再修改。')
                 elif form.cleaned_data['revision'] != locked.revision:
                     form.add_error(None, '其他人已保存编码本变化。输入保留，请核对最新版本。')
@@ -339,7 +347,42 @@ def codebook(request, project_id, book_id):
                     return redirect('codebook', project.id, book.id)
     return render(request, 'coding/codebook.html', {'project': project, 'role': role, 'book': book,
         'codes': book.codes.select_related('parent'), 'form': form, 'editing': code.pk,
-        'book_form': BookForm(initial={'title': book.title, 'policy': book.policy})})
+        'book_form': BookForm(initial={'title': book.title, 'policy': book.policy}),
+        'current_book': project.codebooks.first(),
+        'book_history': project.codebooks.exclude(pk=book.pk),
+        'update_rounds': project.rounds.filter(state='active').exclude(book=book).select_related('book')
+                         if role in ('owner', 'reviewer') else Round.objects.none()})
+
+
+@require_POST
+@login_required
+def book_update(request, project_id, book_id):
+    project, role = access(request, project_id, ['owner', 'reviewer'])
+    source = get_object_or_404(Codebook, project=project, pk=book_id)
+    try:
+        book = begin_update(project, request.user, source, int(request.POST.get('revision', '')))
+        messages.success(request, '可以直接添加或编辑代码，无需重新导入。')
+        return redirect(reverse('codebook', args=[project.pk, book.pk]) + '#code-editor')
+    except (ValueError, OperationalError) as error:
+        messages.error(request, '数据库正在忙，未确认更新成功，请刷新后重试。' if isinstance(error, OperationalError) else str(error))
+    return redirect('codebook', project.pk, source.pk)
+
+
+@require_POST
+@login_required
+def book_apply(request, project_id, book_id):
+    project, role = access(request, project_id, ['owner', 'reviewer'])
+    book = get_object_or_404(Codebook, project=project, pk=book_id)
+    try:
+        if request.POST.get('confirmed') != 'yes':
+            raise ValueError('请确认所选批次将保留原标签并退回草稿，等待重新核对。')
+        revisions = {object_id(value): int(request.POST.get('round_revision_' + value, ''))
+                     for value in request.POST.getlist('round_ids')}
+        count = apply_book_update(project, request.user, book, int(request.POST.get('revision', '')), revisions)
+        messages.success(request, f'已更新 {count} 个进行中的批次。原标签保留，请核对后重新提交。')
+    except (ValueError, OperationalError) as error:
+        messages.error(request, '数据库正在忙，未确认同步成功，请刷新后核对。' if isinstance(error, OperationalError) else str(error))
+    return redirect('codebook', project.pk, book.pk)
 
 
 @require_POST
@@ -349,9 +392,17 @@ def book_new(request, project_id):
     source = get_object_or_404(Codebook, project=project, pk=object_id(request.POST.get('source_id')))
     form = BookForm(request.POST)
     if form.is_valid():
-        book = clone_book(project, request.user, source, **form.cleaned_data)
-        return redirect('codebook', project.id, book.id)
-    messages.error(request, '新版本需要名称、标签方式及修改目的。')
+        try:
+            with transaction.atomic():
+                Project.objects.select_for_update().get(pk=project.pk)
+                if source.pk != project.codebooks.first().pk:
+                    raise Conflict('只能从当前编码本继续更新，请打开当前编码本后重试。')
+                book = clone_book(project, request.user, source, **form.cleaned_data)
+            return redirect('codebook', project.id, book.id)
+        except (ValueError, OperationalError) as error:
+            messages.error(request, '数据库正在忙，未确认更新成功，请刷新后重试。' if isinstance(error, OperationalError) else str(error))
+    else:
+        messages.error(request, '新版本需要名称、标签方式及修改目的。')
     return redirect('codebook', project.id, source.id)
 
 
@@ -387,6 +438,8 @@ def code_remove(request, project_id, code_id):
         with transaction.atomic():
             Project.objects.select_for_update().get(pk=project.id)
             book = Codebook.objects.select_for_update().get(pk=book_id)
+            if book.pk != project.codebooks.first().pk:
+                raise ValueError('只能修改当前编码本，历史规则保持不变。')
             if book.frozen:
                 raise ValueError('冻结规则不能删除。请复制到新版本再调整。')
             if request.POST.get('revision') != str(book.revision):
@@ -413,7 +466,7 @@ def round_new(request, project_id):
     if request.method == 'POST' and form.is_valid():
         try:
             r = create_round(project, request.user, **form.cleaned_data)
-            return redirect('workbench', r.id)
+            return redirect('workbench', r.id) if r.assignments.filter(coder=request.user, superseded=False).exists() else redirect('progress', project.id)
         except (ValueError, OperationalError) as error:
             form.add_error(None, str(error))
     return render(request, 'coding/form.html', {'project': project, 'role': role, 'form': form,
@@ -429,7 +482,7 @@ def workbench(request, round_id):
     if request.GET.get('a'):
         selected_id = object_id(request.GET['a'])
         if r.assignments.filter(pk=selected_id, coder=request.user, superseded=True).exists():
-            messages.info(request, '原任务已拆分，请继续编码新单元。')
+            messages.info(request, '此任务的拆分状态已调整，请继续编码当前有效单元。')
             return redirect('workbench', r.pk)
         a = get_object_or_404(mine, pk=selected_id)
     elif request.GET.get('page'):
@@ -441,6 +494,10 @@ def workbench(request, round_id):
              or mine.filter(status='draft').first() or mine.first())
     ids = list(mine.values_list('id', flat=True))
     index = ids.index(a.pk) if a else 0
+    draft_ids = set(mine.filter(status='draft').values_list('id', flat=True))
+    skip_id = next((pk for pk in ids[index + 1:] + ids[:index] if pk in draft_ids), None) if a else None
+    skip_url = (reverse('workbench', args=[r.pk]) + '?a=' + str(skip_id) if skip_id else
+                reverse('progress', args=[r.project_id]))
     task_page = paginator.get_page(index // 50 + 1)
     context = []
     context_options = {}
@@ -453,13 +510,16 @@ def workbench(request, round_id):
             'more_before': more_before, 'more_after': more_after,
             'before_cursor': before_cursor, 'after_cursor': after_cursor}
     codes = list(r.book.codes.all())
+    restore_options = split_restore_options(a, request.user)
     return render(request, 'coding/workbench.html', {'project': r.project, 'role': role, 'round': r,
         'assignment': a, 'annotation': annotation_data(a) if a else {}, 'codes': codes, 'context': context,
         **context_options,
         'annotation_locked': role == 'viewer' or r.state != 'active' or (a is not None and a.status == 'submitted'),
         'next_url': next_coding_url(a) if a else '',
+        'skip_url': skip_url,
         'can_split': a is not None and r.state == 'active' and role != 'viewer',
         'can_suggest_split': False,
+        'split_restore': restore_options[0] if restore_options else None,
         'tasks': task_page,
         'previous_task': mine.get(pk=ids[index - 1]) if a and index else None,
         'next_task': mine.get(pk=ids[index + 1]) if a and index + 1 < len(ids) else None,
@@ -495,10 +555,20 @@ def assignment_context(request, assignment_id):
 @login_required
 def round_progress(request, round_id):
     r, role = round_access(request, round_id)
-    mine = r.assignments.filter(coder=request.user, superseded=False)
-    return JsonResponse({'state': r.state, 'my_total': mine.count(), 'my_done': mine.filter(status='submitted').count(),
+    mine = coding_assignments(r, request.user)
+    current = None
+    if request.GET.get('current'):
+        current = get_object_or_404(mine, pk=object_id(request.GET['current']))
+    unfinished = mine.filter(status='draft')
+    following = unfinished.exclude(pk=current.pk).first() if current else unfinished.first()
+    following = following or (current if current and current.status == 'draft' else None)
+    response = JsonResponse({'state': r.state, 'my_total': mine.count(), 'my_done': mine.filter(status='submitted').count(),
+                         'my_remaining': unfinished.count(),
+                         'next_unfinished_url': reverse('workbench', args=[r.pk]) + '?a=' + str(following.pk) if following else '',
                          'total': r.assignments.filter(superseded=False).count(),
                          'done': r.assignments.filter(status='submitted', superseded=False).count()})
+    response['Cache-Control'] = 'no-store'
+    return response
 
 
 @require_POST
@@ -622,13 +692,17 @@ def review(request, round_id):
     unit = get_object_or_404(Unit.objects.select_related('record__document'), pk=page.object_list[0]) if ids else None
     entries = r.assignments.filter(unit=unit, superseded=False).select_related('coder', 'primary')
     decision = Decision.objects.filter(round=r, unit=unit).first()
+    current_decision = decision if decision and decision.cycle == r.cycle else None
+    decision_data = annotation_data(current_decision) if current_decision else {
+        'revision': decision.revision if decision else 0, 'primary': None, 'secondary': [],
+        'uncertain': False, 'no_code': False, 'note': ''}
     codes = list(r.book.codes.all())
     keys = {c.id: c.key for c in codes}
     entries = [(a, [keys.get(c, '') for c in a.secondary]) for a in entries]
     return render(request, 'coding/review.html', {'project': r.project, 'role': role, 'round': r,
         'unit': unit, 'entries': entries, 'page': page, 'codes': codes,
-        'decision_data': annotation_data(decision) if decision else {'revision': 0, 'primary': None, 'secondary': []},
-        'decision': decision, 'comments': Comment.objects.filter(round=r, unit=unit).select_related('author').order_by('id'),
+        'decision_data': decision_data,
+        'decision': current_decision, 'comments': Comment.objects.filter(round=r, unit=unit).select_related('author').order_by('id'),
         'context': context_records(unit.record) if unit else []})
 
 
@@ -751,4 +825,20 @@ def archive(request, project_id):
 
 @login_required
 def guide(request):
-    return render(request, 'coding/guide.html')
+    context = {}
+    if 'project' in request.GET:
+        if len(request.GET.getlist('project')) != 1:
+            raise Http404
+        project, role = access(request, object_id(request.GET['project']))
+        context.update(project=project, role=role)
+        if 'round' in request.GET:
+            if len(request.GET.getlist('round')) != 1:
+                raise Http404
+            r = get_object_or_404(Round.objects.select_related('project', 'book'),
+                                 pk=object_id(request.GET['round']), project=project)
+            if r.kind == 'quick' and r.started_by_id != request.user.pk and role not in ('owner', 'reviewer'):
+                raise Http404
+            context['round'] = r
+    elif 'round' in request.GET:
+        raise Http404
+    return render(request, 'coding/guide.html', context)

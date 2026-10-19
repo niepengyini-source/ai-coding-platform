@@ -20,7 +20,8 @@ class RoundForm(forms.Form):
 
     def __init__(self, *args, project, **kwargs):
         super().__init__(*args, **kwargs)
-        self.fields['book_id'].choices = [(b.id, f'v{b.version} · {b.title}') for b in project.codebooks.all()]
+        current = project.codebooks.first()
+        self.fields['book_id'].choices = [(current.id, current.title + '（当前编码本）')] if current else []
         self.fields['coder_ids'].choices = [(m.user_id, m.user.username) for m in project.memberships.exclude(role='viewer').select_related('user').filter(user__is_active=True)]
         fields = set()
         for meta in Unit.objects.filter(record__document__project=project, active=True).values_list('record__metadata', flat=True)[:500]:

@@ -1,0 +1,23 @@
+<section class="card shortcut-settings" id="shortcuts" data-shortcut-settings hidden>
+  <h2>快捷编码按键设置</h2>
+  <p class="hint">点击按键框，按下新按键，再保存。仅影响当前浏览器中的本人账号。</p>
+  <form data-shortcut-settings-form>
+    <div class="shortcut-settings-grid">
+      <label>进入快捷编码 / 选择主代码<input type="text" readonly data-shortcut-record="primary" aria-label="设置选择主代码的快捷键"></label>
+      <label>选择次代码<input type="text" readonly data-shortcut-record="secondary" aria-label="设置选择次代码的快捷键"></label>
+      <label>保存草稿<input type="text" readonly data-shortcut-record="save" aria-label="设置保存草稿的快捷键"></label>
+      <label>确认并下一条<input type="text" readonly data-shortcut-record="next" aria-label="设置确认并下一条的快捷键"></label>
+    </div>
+    <h3 class="small-heading">快捷模式内操作</h3><div class="shortcut-settings-grid">
+      <label>向上选择<input type="text" readonly data-shortcut-record="pickerUp" aria-label="设置向上选择的快捷键"></label>
+      <label>向下选择<input type="text" readonly data-shortcut-record="pickerDown" aria-label="设置向下选择的快捷键"></label>
+      <label>选定代码 / 再按确认下一条<input type="text" readonly data-shortcut-record="pickerConfirm" aria-label="设置选定代码和确认下一条的快捷键"></label>
+      <label>退出快捷编码<input type="text" readonly data-shortcut-record="pickerClose" aria-label="设置退出快捷编码的快捷键"></label>
+      <label>切换主代码<input type="text" readonly data-shortcut-record="modePrimary" aria-label="设置模式内切换主代码的快捷键"></label>
+      <label>切换次代码<input type="text" readonly data-shortcut-record="modeSecondary" aria-label="设置模式内切换次代码的快捷键"></label>
+      <label>跳过当前条<input type="text" readonly data-shortcut-record="skip" aria-label="设置跳过当前条的快捷键"></label>
+    </div>
+    <div class="button-row"><button class="button" type="submit">保存快捷键</button><button class="button secondary" type="button" data-shortcut-reset>恢复默认</button></div>
+    <p class="hint" data-shortcut-settings-status role="status" aria-live="polite">使用 Ctrl、Alt 或 ⌘ 加其他键；上下选择可用单个字母，选定可用Enter。不能重复或占用浏览器常用快捷键。</p>
+  </form>
+</section>

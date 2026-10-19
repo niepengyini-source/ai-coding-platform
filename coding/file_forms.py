@@ -12,7 +12,8 @@ class CodebookMappingForm(forms.Form):
 
     def __init__(self, *args, book, headers, **kwargs):
         super().__init__(*args, **kwargs)
-        choices = [('new', '另存为新版本（已有版本保留）')]
+        choices = [('merge', '补充当前编码本（重复规则保留原有）'),
+                   ('new', '另存为新版本（已有版本保留）')]
         if not book.frozen:
             choices.append(('append', '加入当前草稿（已有规则保留）'))
         self.fields['mode'].choices = choices

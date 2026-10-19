@@ -1,0 +1,1 @@
+{% if split_restore %}{{ split_restore|json_script:'split-restore-data' }}<section class="split-panel" data-unsplit-panel data-endpoint="{% url 'assignment_unsplit' assignment.id %}"><button class="button secondary" type="button" data-unsplit-confirm>撤回本次拆分</button><p class="hint" data-unsplit-status role="status" aria-live="polite"></p></section>{% endif %}

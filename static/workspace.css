@@ -20,6 +20,11 @@
 .workspace-project-card{display:flex;flex-direction:column;margin:0}
 .workspace-project-card h2{overflow-wrap:anywhere}
 .workspace-project-card p{min-height:0}
+.workspace-coding-progress{display:flex;flex-wrap:wrap;align-items:center;justify-content:space-between;gap:8px 12px;margin-top:16px;font-size:13px;color:var(--muted)}
+.workspace-coding-label{min-width:0;overflow-wrap:anywhere}
+.workspace-coding-count{display:inline-flex;align-items:center;gap:8px;white-space:nowrap;font-size:16px;font-weight:600;font-variant-numeric:tabular-nums;color:var(--ink)}
+.workspace-coding-count.is-complete{color:#13764f}
+.workspace-coding-count strong{padding:3px 8px;border-radius:6px;background:#e5f5ec;font-size:12px}
 .workspace-project-times{margin:auto 0 0;padding-top:18px;font-size:12px;display:flex;flex-direction:column;gap:7px;color:var(--muted)}
 .workspace-project-times>div{display:flex;flex-wrap:wrap;justify-content:space-between;gap:4px 12px}
 .workspace-project-times dd{margin:0;font-variant-numeric:tabular-nums}

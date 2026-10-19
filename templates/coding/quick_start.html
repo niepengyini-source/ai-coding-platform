@@ -1,13 +1,13 @@
 {% extends 'base.html' %}
 {% block content %}
 <div class="page-heading"><h1>开始编码</h1></div>
-{% if not has_books %}<section class="card"><h2>先准备编码规则</h2><p>当前没有可用的编码规则。请先导入或填写编码本；普通编码成员可以请负责人准备。</p><a class="button secondary" href="{% url 'project' project.id %}">返回项目</a></section>
+{% if not has_books %}<section class="card">{% if missing_book %}<h2>编码本暂不可用</h2><p>恢复编码本后，可继续使用现有材料与项目。</p>{% else %}<h2>先准备编码规则</h2><p>当前没有可用的编码规则。请先导入或填写编码本；普通编码成员可以请负责人准备。</p>{% endif %}<a class="button secondary" href="{% url 'project' project.id %}">返回项目</a></section>
 {% else %}
-{% if resume %}<section class="card"><h2>你已有未归档的个人编码</h2><p>{{ resume.name }} · 批次 #{{ resume.id }}。再次开始会继续这批记录，不重复分配。</p><a class="button" href="{% url 'workbench' resume.id %}">继续我的编码 →</a></section>{% endif %}
-<section class="card narrow"><h2>选择编码规则</h2><p>本次编码：<strong>{{ unit_count }}</strong> 个单元</p>
-{% if not unit_count %}<div class="notice danger">还没有有效编码单元，请先导入材料并确认单元。已有批次仍可从上方继续。</div>{% endif %}
-<form method="post">{% csrf_token %}{{ form.non_field_errors }}{{ form.token.errors }}{{ form.token }}<p>{{ form.book_id.label_tag }}{{ form.book_id.errors }}{{ form.book_id }}</p>
-<div class="button-row"><button class="button" type="submit" {% if not unit_count %}disabled{% endif %}>开始 / 继续我的编码 →</button>{% if role == 'owner' or role == 'reviewer' %}<a class="button secondary" href="{% url 'round_new' project.id %}">改为安排多人任务</a>{% endif %}</div></form>
+<section class="card narrow start-confirmation"><h2>确认编码准备</h2>
+<dl class="start-summary"><dt>当前有效材料</dt><dd>{{ unit_count }} 个编码单元</dd><dt>当前编码本</dt><dd>{{ selected_book.title }} · v{{ selected_book.version }}</dd><dt>编码规则</dt><dd>{{ code_count }} 个代码 · {{ selected_book.get_policy_display }}</dd></dl>
+<form method="post">{% csrf_token %}{{ form.non_field_errors }}{{ form.token.errors }}{{ form.token }}{{ form.book_id.errors }}{{ form.book_id }}
+{% if resume %}<p>已有进行中的个人编码，本次继续原批次。</p><div class="button-row"><a class="button" href="{% url 'workbench' resume.id %}">继续我的编码 →</a>{% if role == 'owner' or role == 'reviewer' %}<a class="button secondary" href="{% url 'round_new' project.id %}">安排团队编码</a>{% endif %}</div>
+{% else %}<div class="button-row"><button class="button" type="submit">开始个人编码 →</button>{% if role == 'owner' or role == 'reviewer' %}<a class="button secondary" href="{% url 'round_new' project.id %}">安排团队编码</a>{% endif %}</div>{% endif %}</form>
 </section>
 {% endif %}
 {% endblock %}

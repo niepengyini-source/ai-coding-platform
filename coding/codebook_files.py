@@ -19,7 +19,7 @@ from django.utils import timezone
 
 from .importing import MAX_BYTES
 from .models import Code, Codebook, CodebookImportDraft, Project
-from .services import Conflict, audit
+from .services import Conflict, audit, clone_book
 
 MAX_CODES = 1000
 MAX_TEXT = 2 * 1024 * 1024
@@ -359,11 +359,26 @@ def parse_codebook(filename, raw, sheet_name=''):
     return headers, rows, names, selected, warnings
 
 
-def normalized_codes(rows, mapping, existing=()):
+def stored_code_values(code):
+    """Compare the rule's contents, not its database id or import filename."""
+    values = {field: str(getattr(code, field) or '').strip()
+              for field, _, _ in FIELDS if field != 'parent_key'}
+    values['parent_key'] = code.parent.key.strip() if code.parent_id else ''
+    values['color'] = (values['color'] or '#4372e8').lower()
+    return values
+
+
+def same_codebook_codes(codes, existing):
+    return {entry['key']: entry for entry in codes} == {
+        code.key: stored_code_values(code) for code in existing}
+
+
+def normalized_codes(rows, mapping, existing=(), stats=None):
     selected = [v for v in mapping.values() if v]
     if len(selected) != len(set(selected)):
         raise ValueError('同一来源列不能同时对应多个编码字段。')
-    codes, keys = [], set()
+    codes, by_key = [], {}
+    file_duplicates = 0
     for position, row in enumerate(rows, 2):
         entry = {field: str(row.get(mapping.get(field), '') or '').strip() for field, _, _ in FIELDS}
         # A two/three-column rule table often has no distinct name column. Reuse the
@@ -384,19 +399,25 @@ def normalized_codes(rows, mapping, existing=()):
                 raise ValueError(f'第{position}行{label}含无效控制字符。')
         if '\n' in entry['key'] or '\r' in entry['key'] or '\t' in entry['key']:
             raise ValueError(f'第{position}行代码标识不能含换行或制表符。')
-        if entry['key'] in keys:
-            raise ValueError(f'代码标识“{entry["key"]}”在文件中重复。')
-        keys.add(entry['key'])
         if entry['color'] and not re.fullmatch(r'#[0-9a-fA-F]{6}', entry['color']):
             raise ValueError(f'第{position}行颜色需为#加六位十六进制，例如#4372e8。')
-        entry['color'] = entry['color'] or '#4372e8'
+        entry['color'] = (entry['color'] or '#4372e8').lower()
+        if entry['key'] in by_key:
+            if entry == by_key[entry['key']]:
+                file_duplicates += 1
+                continue
+            raise ValueError(f'代码标识“{entry["key"]}”在文件中重复，但规则内容不同，请先核对。')
+        by_key[entry['key']] = entry
         codes.append(entry)
     if not codes:
         raise ValueError('没有可导入的代码。')
-    parents = {c.key: c.parent.key if c.parent else '' for c in existing}
-    overlap = keys & set(parents)
-    if overlap:
-        raise ValueError('这些标识已存在：' + '、'.join(sorted(overlap)[:8]) + '。不会覆盖旧代码；请选择生成新版本或更改标识。')
+    existing = list(existing)
+    original = {code.key: stored_code_values(code) for code in existing}
+    overlap = set(by_key) & set(original)
+    conflicts = {key for key in overlap if by_key[key] != original[key]}
+    if conflicts:
+        raise ValueError('这些标识已存在：' + '、'.join(sorted(conflicts)[:8]) + '。不会覆盖旧代码；请在编码规则中编辑原代码，或更改新代码的标识。')
+    parents = {key: entry['parent_key'] for key, entry in original.items()}
     parents.update({c['key']: c['parent_key'] for c in codes})
     for key, parent in parents.items():
         if parent and parent not in parents:
@@ -410,7 +431,10 @@ def normalized_codes(rows, mapping, existing=()):
             path.add(node)
             node = parents[node]
         finished.update(path)
-    return codes
+    if stats is not None:
+        stats.update(duplicate_count=file_duplicates + len(overlap),
+                     duplicate_file_count=file_duplicates, duplicate_existing_count=len(overlap))
+    return [entry for entry in codes if entry['key'] not in overlap]
 
 
 def draft_available(draft):
@@ -425,20 +449,46 @@ def apply_codebook_import(draft_id, actor, book):
     draft = CodebookImportDraft.objects.select_for_update().get(pk=draft_id, user=actor, book=locked)
     if draft.applied_book_id:
         return draft.applied_book, False
+    if locked.project.codebooks.first().pk != locked.pk:
+        raise Conflict('当前编码本已变化，请打开当前编码本重新导入，历史规则保持不变。')
     draft_available(draft)
     preview = draft.preview
     if not preview or preview.get('revision') != locked.revision:
         raise Conflict('预览后编码本已变化，请返回字段对应页面重新预览，不会覆盖他人的修改。')
     settings = preview['settings']
     mode = settings['mode']
+    if mode not in ('new', 'append', 'merge'):
+        raise ValueError('请选择有效的导入方式。')
     if mode == 'append' and locked.frozen:
         raise Conflict('该编码本已冻结，请重新预览并生成新版本。')
-    existing = list(locked.codes.select_related('parent')) if mode == 'append' else []
-    codes = normalized_codes(preview['codes'], {f: f for f, _, _ in FIELDS}, existing)
+    current_codes = list(locked.codes.select_related('parent'))
+    existing = current_codes if mode in ('append', 'merge') else []
+    if preview['codes']:
+        codes = normalized_codes(preview['codes'], {f: f for f, _, _ in FIELDS}, existing)
+    elif mode in ('append', 'merge') and preview.get('import_stats', {}).get('duplicate_existing_count'):
+        codes = []
+    else:
+        raise ValueError('没有可导入的代码，请重新预览。')
+    unchanged = (not codes if mode in ('append', 'merge') else
+                 settings['policy'] == locked.policy and same_codebook_codes(codes, current_codes))
+    if unchanged:
+        draft.applied_book = locked
+        draft.save(update_fields=['applied_book'])
+        import_stats = preview.get('import_stats', {})
+        duplicate_count = (len(codes) + import_stats.get('duplicate_file_count', 0)
+                           if mode == 'new' else import_stats.get('duplicate_count', 0))
+        audit(locked.project, actor, 'codebook.import_duplicates', locked,
+              after={'filename': draft.filename, 'import_id': str(draft.pk),
+                     'duplicate_count': duplicate_count},
+              reason='规则内容相同，保留现有编码本。')
+        return locked, False
     if mode == 'new':
         version = (locked.project.codebooks.order_by('-version').values_list('version', flat=True).first() or 0) + 1
         target = Codebook.objects.create(project=locked.project, version=version, title=settings['title'],
                                         policy=settings['policy'], change_note=settings['change_note'])
+    elif mode == 'merge' and locked.frozen:
+        target = clone_book(locked.project, actor, locked, locked.title, locked.policy, settings['change_note'])
+        existing = list(target.codes.select_related('parent'))
     else:
         target = locked
     objects = {c.key: c for c in existing}
@@ -456,6 +506,7 @@ def apply_codebook_import(draft_id, actor, book):
     audit(locked.project, actor, 'codebook.import', target,
           before={'source_version': locked.version, 'source_revision': preview['revision']},
           after={'version': target.version, 'mode': mode, 'code_count': len(codes), 'filename': draft.filename,
+                 'duplicate_count': preview.get('import_stats', {}).get('duplicate_count', 0),
                  'sha256': hashlib.sha256(bytes(draft.raw)).hexdigest(), 'import_id': str(draft.pk),
                  'mapping': preview['mapping'], 'sheet': preview.get('sheet', '')}, reason=settings['change_note'])
     return target, True

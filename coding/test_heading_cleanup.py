@@ -35,7 +35,7 @@ class HeadingCleanupTests(TestCase):
     def test_project_keeps_import_coding_and_version_list(self):
         response = self.clean_page(f'/p/{self.project.id}/', self.project.name)
         for text in ['导入材料', '上传并预览', '编码进度', '选择归档范围',
-                     f'v{self.book.version} · {self.book.title}']:
+                     self.book.title, '当前编码本']:
             self.assertContains(response, text)
         self.assertNotContains(response, '>项目概览</div>')
 
@@ -50,7 +50,7 @@ class HeadingCleanupTests(TestCase):
         response = self.clean_page(
             f'/p/{self.project.id}/books/{self.book.id}/', self.book.title)
         for text in ['已冻结', self.first.key, self.first.definition,
-                     '导入编码本', '导出编码本', '规则版本管理']:
+                     '导入编码本', '导出编码本', '修改历史']:
             self.assertContains(response, text)
 
     def test_history_keeps_search_edit_and_record_version(self):

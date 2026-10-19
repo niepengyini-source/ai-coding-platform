@@ -6,6 +6,7 @@ from coding import accounts as a
 from coding import file_views as f
 from coding import workflow_views as w
 from coding import workspace_views as workspace
+from coding import split_views as splitting
 from coding.account_forms import PlatformLoginForm
 
 urlpatterns = [
@@ -28,6 +29,8 @@ urlpatterns = [
     path('p/<int:project_id>/units/<int:unit_id>/', v.change_unit, name='change_unit'),
     path('p/<int:project_id>/books/new/', v.book_new, name='book_new'),
     path('p/<int:project_id>/books/<int:book_id>/', v.codebook, name='codebook'),
+    path('p/<int:project_id>/books/<int:book_id>/update/', v.book_update, name='book_update'),
+    path('p/<int:project_id>/books/<int:book_id>/apply/', v.book_apply, name='book_apply'),
     path('p/<int:project_id>/books/<int:book_id>/import/', f.book_import, name='book_import'),
     path('p/<int:project_id>/books/<int:book_id>/template/<str:file_format>/', f.book_template, name='book_template'),
     path('p/<int:project_id>/exports/', f.exports, name='exports'),
@@ -53,6 +56,7 @@ urlpatterns = [
     path('api/assignments/<int:assignment_id>/save/', v.assignment_save, name='assignment_save'),
     path('api/assignments/<int:assignment_id>/context/', v.assignment_context, name='assignment_context'),
     path('api/assignments/<int:assignment_id>/split/', v.assignment_split, name='assignment_split'),
+    path('api/assignments/<int:assignment_id>/unsplit/', splitting.assignment_unsplit, name='assignment_unsplit'),
     path('api/assignments/<int:assignment_id>/split-suggestion/', v.split_suggestion, name='split_suggestion'),
     path('assignments/<int:assignment_id>/reopen/', v.assignment_reopen, name='assignment_reopen'),
     path('api/rounds/<int:round_id>/units/<int:unit_id>/decision/', v.decision_save, name='decision_save'),

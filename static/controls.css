@@ -1,5 +1,6 @@
 .freeze-bar{display:flex;justify-content:space-between;align-items:center;gap:18px;margin-bottom:20px}
 .context-more{width:100%;margin:8px 0;font-size:12px}.context-more:disabled{cursor:default}.context-row>div{min-width:0}.context-row small{overflow-wrap:anywhere}
+.sidebar nav{min-height:0;overscroll-behavior:contain}
 .archive-filter-line,.archive-export-line{display:flex;align-items:end;gap:16px;flex-wrap:wrap}.archive-filter-line>p,.archive-export-line>p{flex:1;min-width:170px}.archive-filter-line>p:nth-child(3){flex:2}.archive-export-line [data-archive-limit]{flex:0 1 120px;min-width:100px}.archive-filter-line>.button,.archive-export-line>.button{margin-bottom:15px}.history-search input[name=include_superseded]{vertical-align:middle}
 .coding-panel{max-height:calc(100dvh - 32px);overflow:auto;scrollbar-gutter:stable}.annotation-actions{position:sticky;top:-20px;z-index:2;background:white;padding:12px 0;margin-top:-12px;margin-bottom:12px;border-bottom:1px solid var(--line)}.annotation-actions .button-row{display:grid;grid-template-columns:1fr;gap:8px;margin:0}.annotation-actions .hint{display:block;margin-top:6px}.annotation-actions .button:disabled{cursor:default}
 @media(max-width:1250px){.annotation-actions{top:-16px}}
@@ -51,3 +52,6 @@
 .export-row-pagination{display:flex;align-items:center;justify-content:center;gap:18px;margin:16px 0}.export-row-range{display:grid;grid-template-columns:minmax(200px,320px) 160px;gap:16px;margin-top:20px}.export-row-range p{margin-bottom:0}
 @media(max-width:900px){.export-row-search{grid-template-columns:1fr}.export-row-search>p{margin-bottom:0}.export-row-search>.button{justify-self:start;margin:0 0 12px}}
 @media(max-width:600px){.export-row-range{grid-template-columns:1fr}.export-row-toolbar .button-row{gap:8px}.export-row-toolbar .text-button{font-size:12px}}
+@media(max-width:760px){.content:has(.annotation-actions){padding-bottom:150px}}
+@media(min-width:761px) and (max-height:650px){.coding-panel{padding-bottom:210px}}
+.task-completion{width:min(540px,calc(100vw - 32px));padding:28px;border:1px solid #dbe3f2;border-radius:18px;color:#172b4d;box-shadow:0 24px 80px #142b5940}.task-completion::backdrop{background:#15274866}.task-completion h2{margin-top:0}.task-completion .button-row{flex-wrap:wrap}.task-completion .error{color:#b42318}.task-complete-success{color:#087e63;font-weight:700}

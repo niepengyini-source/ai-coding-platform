@@ -200,7 +200,7 @@ class WorkpadSplitTests(Helpers, TestCase):
         response = self.save(self.a, token=self.payload['token'], action='save')
         self.assertEqual(response.status_code, 409)
         response = self.client.get(f'/p/{self.project.pk}/history/{self.a.pk}/')
-        self.assertContains(response, '原记录已拆分')
+        self.assertContains(response, '历史单元已停用')
         self.assertFalse(response.context['flags']['editable'])
         self.assertFalse(response.context['flags']['reopenable'])
 

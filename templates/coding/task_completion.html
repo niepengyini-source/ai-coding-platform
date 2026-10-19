@@ -1,0 +1,10 @@
+<dialog class="task-completion" data-task-completion aria-labelledby="task-completion-title" data-progress-url="{% url 'round_progress' round.id %}?current={{ assignment.id }}" data-projects-url="{% url 'projects' %}">
+  <h2 id="task-completion-title">已经是最后一个了</h2>
+  <p data-task-completion-status role="status" aria-live="polite">正在检查编码进度…</p>
+  <div class="button-row">
+    <button class="button" type="button" data-task-continue disabled>继续未完成单元</button>
+    <button class="button secondary" type="button" data-task-save>保存任务</button>
+    <button class="text-button" type="button" data-task-retry hidden>重新检查</button>
+    <button class="text-button" type="button" data-task-cancel>返回编码</button>
+  </div>
+</dialog>

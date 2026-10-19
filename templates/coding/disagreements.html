@@ -4,6 +4,7 @@
   <div><h1>分歧与疑点清单</h1><p>{{ round.name }} · 系统只比较标签和标记，不代替你解释分歧原因。</p></div>
   <a class="button secondary" href="{% url 'workbench' round.id %}">返回工作台</a>
 </div>
+{% include 'coding/workflow_hint.html' %}
 {% if round.kind == 'training' %}<div class="notice">培训清单可能包含尚未提交的草稿，仅用于共同学习，不是独立编码信度结果。</div>{% endif %}
 {% if round.cycle > 1 %}<div class="notice danger">本轮公开答案后重新开放，不能再作为新的盲法独立评估；旧结论不会算作当前轮次定稿。</div>{% endif %}
 <section class="card">

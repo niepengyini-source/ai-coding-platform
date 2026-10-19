@@ -15,7 +15,8 @@ from django.utils.http import urlencode
 from .models import Codebook, CodebookImportDraft, Project, Round
 from .views import access, review_access
 from .codebook_files import (FIELDS, MAX_BYTES, parse_codebook, normalized_codes, draft_available,
-                             apply_codebook_import, suggest_mapping, mapping_candidates, LOOKUP, normalize_header)
+                             apply_codebook_import, suggest_mapping, mapping_candidates, LOOKUP, normalize_header,
+                             same_codebook_codes)
 from .file_forms import CodebookMappingForm, ExportOptionsForm
 from .exporting import annotation_table, final_table, disagreement_table, unit_table, book_table, export_response, MAX_EXPORT_ROWS
 from .workflow import visible_rounds
@@ -32,15 +33,20 @@ def draft_for(request, book, draft_id):
 
 def import_initial(book, filename):
     return {'title': Path(filename).stem[:120], 'policy': book.policy,
-            'mode': 'append' if not book.frozen and not book.codes.exists() else 'new',
+            'mode': 'merge' if book.codes.exists() else 'append' if not book.frozen else 'new',
             'change_note': '从文件导入编码规则：' + filename}
 
 
 def import_preview(book, form, rows, sheet, warnings, automatic=False):
     settings = {k: form.cleaned_data[k] for k in ('mode', 'title', 'policy', 'change_note')}
     mapping = form.mapping()
-    existing = list(book.codes.select_related('parent')) if settings['mode'] == 'append' else []
-    codes = normalized_codes(rows, mapping, existing)
+    existing = list(book.codes.select_related('parent')) if settings['mode'] in ('append', 'merge') else []
+    import_stats = {}
+    codes = normalized_codes(rows, mapping, existing, stats=import_stats)
+    unchanged = (not codes if settings['mode'] in ('append', 'merge') else
+                 settings['policy'] == book.policy and same_codebook_codes(codes, book.codes.select_related('parent')))
+    if unchanged and codes:
+        import_stats['duplicate_count'] += len(codes)
     warnings = list(warnings)
     if not mapping['name']:
         warnings.append('文件未选择单独的名称列，显示名称沿用“' + mapping['key']
@@ -53,7 +59,7 @@ def import_preview(book, form, rows, sheet, warnings, automatic=False):
                             + '”，但这个表头通常表示“' + labels[expected] + '”。请以原文件实际内容为准。')
     return {'codes': codes, 'settings': settings, 'mapping': mapping, 'sheet': sheet,
             'revision': book.revision, 'warnings': warnings, 'automatic': automatic,
-            'name_from_key': not bool(mapping['name'])}
+            'name_from_key': not bool(mapping['name']), 'import_stats': import_stats, 'unchanged': unchanged}
 
 
 def save_import_preview(draft, user, book, preview):
@@ -89,7 +95,11 @@ def book_import(request, project_id, book_id):
             if request.POST.get('confirmed') != 'yes':
                 raise ValueError('请勾选确认已核对代码定义和层级。')
             target, created = apply_codebook_import(draft.pk, request.user, book)
-            messages.success(request, f'导入完成：v{target.version} · {target.title}。代码可用于新建编码任务；旧任务规则不改变。')
+            result = getattr(target, 'import_stats', {})
+            if not created:
+                messages.info(request, '规则已存在，保留原编码本，未重复添加，也未覆盖已有编码。')
+            else:
+                messages.success(request, f'编码本导入完成：新增 {result.get("added_count", len(draft.preview.get("codes", [])))} 条规则，跳过 {result.get("duplicate_count", draft.preview.get("import_stats", {}).get("duplicate_count", 0))} 条完全重复规则。已有任务不自动更换规则。')
             return redirect('codebook', project.id, target.id)
         if action == 'upload':
             upload = request.FILES.get('file')

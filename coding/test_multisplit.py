@@ -180,7 +180,7 @@ class MultiSplitTests(TestCase):
         self.assertTrue(self.a.superseded)
         for field in ['primary', 'secondary', 'uncertain', 'no_code', 'note', 'status']:
             self.assertEqual(annotation_data(self.a)[field], old[field])
-        self.assertContains(self.client.get(f'/p/{self.project.pk}/history/{self.a.pk}/'), '原记录已拆分')
+        self.assertContains(self.client.get(f'/p/{self.project.pk}/history/{self.a.pk}/'), '历史单元已停用')
         self.assertTrue(all(not c.primary_id and not c.note and not c.uncertain for c in self.children()))
 
     def test_unicode_crlf_and_nested_splits_keep_exact_original_spans(self):

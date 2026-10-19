@@ -1,0 +1,15 @@
+<div class="shortcut-toolbar" data-shortcut-toolbar hidden>
+  <button class="button secondary" type="button" data-shortcut-open="primary">快捷编码 <kbd data-shortcut-hint="primary"></kbd></button>
+  {% if round.book.policy == 'multi' %}<button class="button secondary" type="button" data-shortcut-open="secondary">快捷选次代码 <kbd data-shortcut-hint="secondary"></kbd></button>{% endif %}
+  <a class="shortcut-settings-link" href="{% url 'guide' %}?project={{ project.id }}&amp;round={{ round.id }}#shortcuts">设置快捷键</a>
+  <span class="hint" data-shortcut-mode-status role="status" hidden></span>
+</div>
+<dialog class="shortcut-dialog" data-shortcut-dialog aria-modal="false" aria-labelledby="shortcut-dialog-title" hidden>
+  <div class="shortcut-dialog-heading"><h2 id="shortcut-dialog-title">选择主代码</h2><button class="text-button" type="button" data-shortcut-close aria-label="收起代码选择">收起</button></div>
+  <label class="sr-only" for="shortcut-search">搜索代码、名称或定义</label>
+  <input id="shortcut-search" data-shortcut-search type="search" autocomplete="off" placeholder="搜索代码、名称或定义" role="combobox" aria-autocomplete="list" aria-expanded="false" aria-controls="shortcut-code-list">
+  <div id="shortcut-code-list" class="shortcut-code-list" data-shortcut-list role="listbox" tabindex="0" aria-label="可选代码"></div>
+  <p class="hint" data-shortcut-empty hidden>没有匹配的代码</p>
+  <div class="shortcut-dialog-footer"><span data-shortcut-count role="status" aria-live="polite"></span><span class="hint"><kbd data-shortcut-hint="modePrimary">1</kbd> 主 · <kbd data-shortcut-hint="modeSecondary">2</kbd> 次 · <kbd data-shortcut-hint="pickerUp">W</kbd>/<kbd data-shortcut-hint="pickerDown">S</kbd> 选择 · <kbd data-shortcut-hint="pickerConfirm">Enter</kbd> 选定</span></div><p class="hint"><kbd data-shortcut-hint="skip">Alt+Enter</kbd> 跳过 · <kbd data-shortcut-hint="pickerClose">Alt+X</kbd> 退出 · 鼠标仍可操作</p>
+  {% if not locked and mode == 'annotation' %}<button class="button secondary shortcut-skip-button" type="button" data-shortcut-skip disabled>跳过当前条 <kbd data-shortcut-hint="skip">Alt+Enter</kbd></button>{% endif %}
+</dialog>

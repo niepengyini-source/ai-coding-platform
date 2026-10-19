@@ -1,0 +1,4 @@
+{% if workflow %}{% if layout_page != 'workbench' or workflow.show_action %}<section class="workflow-hint" aria-label="当前工作指引">
+  <div><strong>{{ workflow.title }}</strong>{% if workflow.round_name %}<span class="workflow-hint-round">{{ workflow.round_name }}</span>{% endif %}<p>{{ workflow.detail }}</p></div>
+  {% if workflow.show_action %}<a class="button secondary" href="{{ workflow.next_url }}">{{ workflow.next_label }} →</a>{% endif %}
+</section>{% endif %}{% endif %}

@@ -97,6 +97,12 @@ class SimpleRuleImportTests(TestCase):
     def setUpTestData(cls):
         for key, value in fixture().items():
             setattr(cls, key, value)
+        # Parser-focused uploads add new synthetic rules; old definitions are
+        # deliberately separate so this fixture does not request an overwrite.
+        cls.first.key = 'OLD_PLAN'
+        cls.first.save(update_fields=['key'])
+        cls.second.key = 'OLD_CHECK'
+        cls.second.save(update_fields=['key'])
 
     def setUp(self):
         self.client.force_login(self.owner)
@@ -153,7 +159,7 @@ class SimpleRuleImportTests(TestCase):
         self.confirm(draft)
         self.assertEqual(Code.objects.count(), count)
         self.assertEqual(AuditEvent.objects.filter(action='codebook.import').count(), 1)
-        self.assertEqual(self.book.codes.get(key='PLAN').name, '计划')
+        self.assertEqual(self.book.codes.get(key='OLD_PLAN').name, '计划')
 
     def test_empty_draft_uses_current_book_and_preserves_policy(self):
         book = Codebook.objects.create(project=self.project, version=2, title='空草稿', policy='single')
@@ -167,12 +173,25 @@ class SimpleRuleImportTests(TestCase):
         self.assertEqual(book.policy, 'single')
         self.assertEqual(book.codes.count(), 2)
 
-    def test_nonempty_draft_defaults_to_new_version_without_overwrite(self):
+    def test_nonempty_draft_defaults_to_merge_without_overwrite(self):
+        book = Codebook.objects.create(project=self.project, version=2, title='已有草稿', policy='single')
+        original = Code.objects.create(book=book, key='OLD_RULE', name='已有规则', definition='保留原定义')
+        _, draft = self.auto_upload(book=book)
+        self.assertEqual(draft.preview['settings']['mode'], 'merge')
+        self.confirm(draft)
+        draft.refresh_from_db()
+        self.assertEqual(draft.applied_book_id, book.pk)
+        original.refresh_from_db()
+        self.assertEqual(original.definition, '保留原定义')
+        self.assertEqual(book.codes.count(), 3)
+
+    def test_nonempty_draft_same_identifier_changed_rule_needs_review(self):
         book = Codebook.objects.create(project=self.project, version=2, title='已有草稿', policy='single')
         original = Code.objects.create(book=book, key='PLAN', name='已有规则', definition='保留原定义')
-        _, draft = self.auto_upload(book=book)
-        self.assertEqual(draft.preview['settings']['mode'], 'new')
-        self.confirm(draft)
+        response, draft = self.auto_upload(book=book)
+        self.assertEqual(draft.preview, {})
+        self.assertIn('advanced=1', response.url)
+        self.assertContains(self.client.get(response.url), '不会覆盖旧代码')
         original.refresh_from_db()
         self.assertEqual(original.definition, '保留原定义')
         self.assertEqual(book.codes.count(), 1)

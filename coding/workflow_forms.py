@@ -3,13 +3,16 @@ from .models import Codebook, Round
 
 
 class QuickStartForm(forms.Form):
-    book_id = forms.ModelChoiceField(label='使用哪一版编码本', queryset=Codebook.objects.none())
+    book_id = forms.ModelChoiceField(label='当前编码本', queryset=Codebook.objects.none(),
+        widget=forms.HiddenInput,
+        error_messages={'invalid_choice': '当前编码本已更新或不可用，请刷新页面后重试。'})
     token = forms.UUIDField(widget=forms.HiddenInput)
 
     def __init__(self, *args, project, **kwargs):
         super().__init__(*args, **kwargs)
-        self.fields['book_id'].queryset = project.codebooks.filter(codes__isnull=False).distinct()
-        self.fields['book_id'].label_from_instance = lambda book: f'v{book.version} · {book.title}'
+        current = project.codebooks.first()
+        self.fields['book_id'].queryset = project.codebooks.filter(pk=current.pk, codes__isnull=False).distinct() if current else Codebook.objects.none()
+        self.fields['book_id'].label_from_instance = lambda book: book.title
 
 
 class HistorySearchForm(forms.Form):

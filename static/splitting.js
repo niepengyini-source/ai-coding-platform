@@ -45,6 +45,13 @@ if (typeof module !== 'undefined') module.exports = {splitPreview, selectionPrev
   const personal = panel.dataset.mode === 'personal';
   let selected = null, cached = null, cuts = [], changes = [], active = false, pending = null, busy = false, conflict = false;
   const tooShort = Array.from(text.textContent).filter(character => character.trim()).length < 2;
+  const operationBlocked = () => form.dataset.splitting === 'true' && !busy && !pending && !conflict;
+  function setActive(value) {
+    if (active === value) return;
+    active = value;
+    form.dataset.splitPreview = String(active);
+    window.dispatchEvent(new Event('platform:split-preview-change'));
+  }
   function selectionBounds() {
     const selection = window.getSelection();
     if (!selection || !selection.rangeCount || selection.isCollapsed) return null;
@@ -58,6 +65,7 @@ if (typeof module !== 'undefined') module.exports = {splitPreview, selectionPrev
     return {start,end:Array.from(prefix.toString()).length};
   }
   function render() {
+    const blocked = operationBlocked();
     list.replaceChildren();
     if (cuts.length) cutsPreview(text.textContent,cuts).forEach((part,index) => {
       const row = document.createElement('div');
@@ -71,17 +79,17 @@ if (typeof module !== 'undefined') module.exports = {splitPreview, selectionPrev
     });
     modeControls.hidden = !active;
     preview.hidden = !active || !cuts.length;
-    undoButton.disabled = busy || conflict || !!pending || !changes.length;
-    cancelButton.disabled = busy || conflict || !!pending;
-    confirmButton.disabled = busy || conflict || !cuts.length;
+    undoButton.disabled = blocked || busy || conflict || !!pending || !changes.length;
+    cancelButton.disabled = blocked || busy || conflict || !!pending;
+    confirmButton.disabled = blocked || busy || conflict || !cuts.length;
     confirmButton.textContent = personal ? `确认拆分并编码（${cuts.length+1}条）` : '发送建议';
-    previewButton.disabled = tooShort || busy || conflict || !!pending;
+    previewButton.disabled = blocked || tooShort || busy || conflict || !!pending;
     previewButton.textContent = active ? '继续选择文字' : '拆分单元';
     text.classList.toggle('split-selecting',active);
     if (tooShort) status.textContent = '此单元无需拆分';
   }
   function addSelection(bounds) {
-    if (!bounds || busy || pending || conflict || tooShort) return;
+    if (!bounds || operationBlocked() || busy || pending || conflict || tooShort) return;
     try {
       const next = selectionPreview(text.textContent,bounds.start,bounds.end);
       const length = Array.from(text.textContent).length;
@@ -122,15 +130,15 @@ if (typeof module !== 'undefined') module.exports = {splitPreview, selectionPrev
   });
   previewButton.addEventListener('mousedown', event => event.preventDefault());
   previewButton.addEventListener('click', () => {
-    if (tooShort || busy || pending || conflict) return;
+    if (tooShort || operationBlocked() || busy || pending || conflict) return;
     const wasActive = active;
-    active = true;
+    setActive(true);
     render();
     const bounds = selectionBounds() || (!wasActive ? cached : null);
     if (bounds) addSelection(bounds);
   });
   undoButton.addEventListener('click',() => {
-    if (busy || pending || conflict || !changes.length) return;
+    if (operationBlocked() || busy || pending || conflict || !changes.length) return;
     const previous = changes.pop();
     cuts = previous.cuts;
     selected = previous.selected;
@@ -140,8 +148,8 @@ if (typeof module !== 'undefined') module.exports = {splitPreview, selectionPrev
     render();
   });
   cancelButton.addEventListener('click',() => {
-    if (busy || pending || conflict) return;
-    active = false;
+    if (operationBlocked() || busy || pending || conflict) return;
+    setActive(false);
     cuts = [];
     changes = [];
     selected = cached = null;
@@ -150,7 +158,7 @@ if (typeof module !== 'undefined') module.exports = {splitPreview, selectionPrev
     render();
   });
   confirmButton.addEventListener('click', async () => {
-    if (busy || conflict || selected === null) return;
+    if (operationBlocked() || busy || conflict || selected === null) return;
     const controls = [...form.querySelectorAll('input,select,textarea,button')];
     try {
       if (!personal && !reason.value.trim()) throw new Error('请说明拆分理由。');
@@ -163,7 +171,7 @@ if (typeof module !== 'undefined') module.exports = {splitPreview, selectionPrev
         if (form.platformSaveBeforeSplit) await form.platformSaveBeforeSplit();
         else throw new Error('编码页面未准备好，请刷新后重试。');
       }
-      pending = pending || {...(personal ? {cuts:[...cuts],start:selected.start} : {offset:selected.end}), revision:Number(form.dataset.revision),
+      pending = pending || {...(personal ? {cuts:[...cuts],start:selected.start} : {offset:selected.end}), revision:Number(form.dataset.revision), book_id:form.dataset.bookId ? Number(form.dataset.bookId) : undefined,
         token:globalThis.crypto?.randomUUID?.() || 'xxxxxxxx-xxxx-4xxx-yxxx-xxxxxxxxxxxx'.replace(/[xy]/g, c => {
           const n = Math.floor(Math.random() * 16);
           return (c === 'x' ? n : (n & 3) | 8).toString(16);
@@ -187,7 +195,7 @@ if (typeof module !== 'undefined') module.exports = {splitPreview, selectionPrev
         if (!/^\/r\/\d+\/(?:\?a=\d+)?$/u.test(data.next_url || '')) throw new Error('拆分已完成，请刷新工作台查看新单元。');
         location.assign(data.next_url);
       } else {
-        active = false;
+        setActive(false);
         cuts = [];
         changes = [];
         selected = null;
@@ -207,5 +215,6 @@ if (typeof module !== 'undefined') module.exports = {splitPreview, selectionPrev
     if (busy || pending) { event.preventDefault(); event.returnValue = ''; }
   });
   window.addEventListener('platform:before-back', event => { if (busy || pending) event.preventDefault(); });
+  window.addEventListener('platform:unit-operation-change', render);
   render();
 })();

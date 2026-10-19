@@ -1,7 +1,7 @@
 {% extends 'base.html' %}
 {% block content %}
-<div class="page-heading"><h1>项目归档</h1></div>
-{% if can_full_archive %}<section class="card"><div class="section-heading"><div><h2>完整项目快照</h2><p class="hint">随时保存材料、规则、全部成员编码与修改记录；包含草稿，不结束当前编码。</p></div><form method="post">{% csrf_token %}<button class="button secondary" name="action" value="full" type="submit">下载项目快照 ZIP</button></form></div></section>{% endif %}
+<div class="page-heading"><h1>项目备份与归档</h1></div>
+{% if can_full_archive %}<section class="card" aria-labelledby="project-backup-title"><div class="section-heading"><div><h2 id="project-backup-title">完整项目备份</h2><p class="hint">不结束编码，可随时下载。包含材料、规则、全部成员编码和修改记录（含草稿）。</p></div><form method="post">{% csrf_token %}<button class="button secondary" name="action" value="full" type="submit">下载项目备份</button></form></div></section>{% endif %}
 <section class="card"><h2>自定义归档导出</h2><p class="hint">筛选已保存的编码记录，再选择导出范围。每行对应一名编码员的一个单元，保留原始时间、组别等字段；已提交不等于协商定稿。</p>
 <form method="post" class="history-search" data-archive-form data-archive-count="{{ page.paginator.count }}">{% csrf_token %}
 {{ search_form.non_field_errors }}
