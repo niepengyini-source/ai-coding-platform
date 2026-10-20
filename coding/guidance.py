@@ -33,6 +33,8 @@ def project_guidance(project, user, role, round_=None):
         'round_id': None, 'round_name': '', 'round_kind': '', 'round_state': '',
         'progress': {'submitted': 0, 'total': 0, 'remaining': 0, 'scope': 'my'},
         'ready': has_units and has_codes, 'missing': '', 'can_manage': manager,
+        'has_units': has_units, 'has_codes': has_codes,
+        'book_id': book.pk if book else None, 'has_rounds': project.rounds.exists(),
     }
 
     def show(phase, title, detail, label, url):
@@ -147,3 +149,52 @@ def project_guidance(project, user, role, round_=None):
     target = 'mine' if current.kind == 'quick' else 'final'
     return show(5, '本轮编码已结束', '可以导出成果；补充材料或后续轮次不需要重新创建项目。',
                 '导出编码结果', reverse('exports', args=[project.pk]) + '?target=' + target + '&round=' + str(current.pk))
+
+
+def preparation_guidance(project, role, workflow, page, *, material_preview=False, book_preview=False):
+    """Describe preparation on the current page; confirmation stays in its existing POST form."""
+    if workflow['has_rounds'] or role == 'viewer':
+        return None
+    has_units, has_codes = workflow['has_units'], workflow['has_codes']
+    manager = workflow['can_manage']
+    stage = 1 if not has_units else 2 if not has_codes else 3
+    title, detail = workflow['title'], workflow['detail']
+    label, url = '', ''
+    if not has_units:
+        title, detail = '第1步：导入材料', '上传文件，核对文本列和预览后确认导入。'
+        if manager and page != 'materials':
+            label, url = '下一步：导入材料', reverse('materials', args=[project.pk])
+    elif not has_codes:
+        title, detail = '材料已就绪', '接下来准备编码本，确定每个代码的含义。'
+        if manager and workflow['book_id']:
+            label, url = '下一步：准备编码本', reverse('codebook', args=[project.pk, workflow['book_id']])
+    else:
+        title, detail = '材料与编码本已就绪', '核对准备信息后，即可进入编码工作台。'
+        label, url = '下一步：确认并开始', reverse('coding_entry', args=[project.pk])
+    if page == 'codebook':
+        if not has_codes and manager and workflow['book_id']:
+            title, detail = '第2步：准备编码本', '导入已有编码本，或在本页添加代码。'
+            label, url = '下一步：导入编码本', reverse('book_import', args=[project.pk, workflow['book_id']])
+            stage = 2
+        elif has_codes:
+            title = '编码本已就绪'
+    if not manager and not workflow['ready']:
+        title = '等待导入编码材料' if not has_units else '等待准备编码本'
+        detail = '请联系项目负责人完成准备，之后可继续编码。'
+        label, url = '', ''
+    if page == 'materials' and material_preview:
+        stage, title = 1, '核对材料后，确认导入'
+        detail, label, url = '检查下方文本列和预览，确认导入后继续下一步。', '', ''
+    elif page == 'book_import':
+        stage = 2
+        title = '核对编码本后，确认导入' if book_preview else '第2步：导入编码本'
+        detail = '核对定义和示例，确认后继续下一步。' if book_preview else '上传文件，再核对识别结果并确认导入。'
+        label, url = '', ''
+    elif page == 'quick_start' and workflow['ready']:
+        stage, title = 3, '最后一步：确认并开始'
+        detail, label, url = '核对下方材料和编码本，选择开始方式。', '', ''
+    completed = [has_units and not material_preview, has_codes and page != 'book_import', False]
+    return {'stage': stage, 'title': title, 'detail': detail, 'next_label': label, 'next_url': url,
+            'confirm_anchor': '#book-import-confirm' if page == 'book_import' and book_preview else '',
+            'steps': [{'number': index, 'label': name, 'complete': completed[index - 1], 'current': index == stage}
+                      for index, name in enumerate(('导入材料', '准备编码本', '确认并开始'), 1)]}

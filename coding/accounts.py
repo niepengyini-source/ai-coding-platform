@@ -63,6 +63,10 @@ def _message_error(request, error):
     messages.error(request, '后台忙，操作没有确认完成，请稍后重试。' if isinstance(error, OperationalError) else str(error))
 
 
+def _membership_redirect(request, project_id):
+    return redirect('team_setup' if request.POST.get('team_setup') == 'yes' else 'members', project_id)
+
+
 @require_POST
 @login_required
 def invitation_manage(request, project_id):
@@ -71,6 +75,9 @@ def invitation_manage(request, project_id):
     form = InvitationForm(request.POST)
     action = request.POST.get('action')
     if not form.is_valid() or action not in ('issue', 'revoke'):
+        if request.POST.get('team_setup') == 'yes':
+            messages.error(request, '请重新选择邀请码有效期后再操作。')
+            return _membership_redirect(request, project.id)
         return HttpResponse('请填写有效的邀请期限和操作版本。', status=400)
     try:
         if action == 'issue':
@@ -84,7 +91,7 @@ def invitation_manage(request, project_id):
             messages.success(request, '邀请码已停用。已加入成员不受影响；已提交的申请仍可审核。')
     except (ValueError, OperationalError) as exc:
         _message_error(request, exc)
-    return redirect('members', project.id)
+    return _membership_redirect(request, project.id)
 
 
 @require_POST
@@ -96,7 +103,7 @@ def join_review(request, project_id, application_id):
     form = JoinReviewForm(request.POST)
     if not form.is_valid():
         messages.error(request, '审核内容不完整或权限不正确，请刷新后重新选择。')
-        return redirect('members', project.id)
+        return _membership_redirect(request, project.id)
     data = form.cleaned_data
     try:
         review_membership(project, request.user, application_id, data['revision'],
@@ -104,7 +111,7 @@ def join_review(request, project_id, application_id):
         messages.success(request, '申请已通过，小组项目已加入成员的“我的项目”。' if data['action'] == 'approve' else '申请已拒绝。')
     except (ValueError, OperationalError) as exc:
         _message_error(request, exc)
-    return redirect('members', project.id)
+    return _membership_redirect(request, project.id)
 
 
 @require_POST

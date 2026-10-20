@@ -1,0 +1,43 @@
+{% extends 'base.html' %}{% load static %}
+{% block content %}
+<link rel="stylesheet" href="{% static 'round_selection.css' %}">
+<div class="page-heading"><h1>安排编码任务</h1><p>先选成员和材料，预览确认后再分配。</p></div>
+{% if error %}<div class="notice danger" role="alert">{{ error }}</div>{% endif %}
+<form id="round-arrangement" class="round-arrangement" method="post" data-unit-choices-url="{{ unit_choices_url }}">
+  {% csrf_token %}{{ form.book_id.as_hidden }}{{ form.unit_ids.as_hidden }}
+  <input type="hidden" name="pool_hash" value="{{ pool_hash }}">
+  {% if form.errors %}<div class="notice danger" role="alert"><strong>请检查以下内容</strong>{{ form.non_field_errors }}{% for field in form %}{% for error in field.errors %}<p>{{ field.label }}：{{ error }}</p>{% endfor %}{% endfor %}</div>{% endif %}
+  <section class="card"><h2>安排什么工作</h2>
+    <div class="round-field-grid"><div><label for="{{ form.name.id_for_label }}">任务名称</label>{{ form.name }}<p class="hint">用于区分这次工作，例如“第一轮试编码”。</p></div><div><label for="{{ form.kind.id_for_label }}">工作阶段</label>{{ form.kind }}<p class="hint">培训练习可讨论；独立试编码和正式编码分别保存各人的判断。</p></div></div>
+    <p class="round-book-summary">本次使用：<strong>{{ current_book.title|default:'尚未准备编码本' }}</strong>{% if current_book %} · v{{ current_book.version }}<span>任务开始后保留对应的规则版本。</span>{% else %}<span><a href="{% url 'project' project.id %}">返回项目准备编码本</a></span>{% endif %}</p>
+  </section>
+  <section class="card"><h2>谁来编码</h2>
+    <fieldset class="round-members"><legend>选择成员</legend>{{ form.coder_ids }}<p class="hint">勾选本轮参与编码的成员，可选一人或多人。</p></fieldset>
+    <div class="round-field-grid"><div><label for="{{ form.distribution.id_for_label }}">怎样分配</label>{{ form.distribution }}<p class="hint">“同一批单元”：每人都做全部所选材料；“单人分工”：分给各成员；“部分双人复核”：其中一部分由两人分别编码。</p></div><div data-round-mixed><label for="{{ form.double_percent.id_for_label }}">双人复核比例（%）</label>{{ form.double_percent }}<p class="hint">仅用于部分双人复核，表示所选材料中安排两人编码的比例。</p></div></div>
+  </section>
+  <section class="card"><h2>选哪些材料</h2>
+    <fieldset class="round-selection-modes"><legend>选取方式</legend>
+      <label><input type="radio" name="selection_mode" value="random"{% if form.selection_mode.value|default:'random' == 'random' %} checked{% endif %}><span><strong>随机抽取</strong><small>由系统从材料中抽取。</small></span></label>
+      <label><input type="radio" name="selection_mode" value="sequential"{% if form.selection_mode.value == 'sequential' %} checked{% endif %}><span><strong>连续选取</strong><small>从指定位置开始，按顺序选取。</small></span></label>
+      <label><input type="radio" name="selection_mode" value="manual"{% if form.selection_mode.value == 'manual' %} checked{% endif %}><span><strong>手动选择</strong><small>批量输入序号，或筛选后选择。</small></span></label>
+    </fieldset>
+    <div class="round-field-grid round-selection-counts"><div data-round-panel="sequential"><label for="{{ form.start_position.id_for_label }}">从材料第几条开始</label>{{ form.start_position }}<p class="hint">按本项目当前有效材料的顺序，从1开始；不是系统编号。</p></div><div data-round-count><label for="{{ form.count.id_for_label }}">本轮共选多少条</label>{{ form.count }}<p class="hint" data-round-count-hint>这是本轮的材料总数，不是每人数量。填0表示选取全部有效材料。</p></div></div>
+    <div data-round-panel="random"><details class="round-advanced"><summary>高级设置（通常不用改）</summary><div class="round-field-grid"><div><label for="{{ form.seed.id_for_label }}">随机种子</label>{{ form.seed }}<p class="hint">相同材料和设置使用同一个数，可以复现同一次随机抽取。</p></div><div><label for="{{ form.stratify.id_for_label }}">分层抽样</label>{{ form.stratify }}<p class="hint">按原始数据的某个字段均衡抽取，例如不同组别。留空表示不分层。</p></div></div></details></div>
+    <div class="round-manual" data-round-panel="manual">
+      <div class="round-bulk"><label for="{{ form.manual_positions.id_for_label }}">批量输入材料顺序号</label>{{ form.manual_positions }}<p class="hint">例如 3、8、15-30、47，可混合单条与区间。重复的只保留一次。</p><button class="button secondary" type="button" data-round-add hidden>加入已选</button></div>
+      <div class="round-picker" data-round-picker hidden>
+        <div class="round-picker-filters"><div><label for="round-unit-query">关键词</label><input type="search" id="round-unit-query" maxlength="200" placeholder="搜索材料文字"></div><div><label for="round-unit-document">来源文件</label><select id="round-unit-document"><option value="">全部文件</option>{% for doc in documents %}<option value="{{ doc.id }}">{{ doc.name }}</option>{% endfor %}</select></div><div><label for="round-unit-field">原始附加信息</label><select id="round-unit-field"><option value="">不筛选附加信息</option>{% for field in metadata_fields %}<option value="{{ field }}">{{ field }}</option>{% endfor %}</select></div><div><label for="round-unit-value">包含的内容</label><input id="round-unit-value" maxlength="200" placeholder="填写字段中的值"></div><button class="button secondary" type="button" data-round-filter>筛选</button></div>
+        <p class="hint">附加信息使用原文件的字段名，可按组别、时间或发言者等信息筛选。</p>
+        <div class="round-picker-toolbar"><strong data-round-selected-count>已选0条</strong><div class="button-row"><button class="button secondary" type="button" data-round-show-selected>查看已选</button><button class="button secondary" type="button" data-round-select-matching>选择全部匹配</button><button class="text-button" type="button" data-round-clear>清空已选</button></div></div>
+        <p class="round-picker-status" data-round-status role="status" aria-live="polite"></p>
+        <div class="round-picker-list" data-round-list></div>
+        <nav class="round-picker-pagination" aria-label="材料选择分页"><button class="button secondary" type="button" data-round-previous>上一页</button><span data-round-page></span><button class="button secondary" type="button" data-round-next>下一页</button></nav>
+      </div>
+      <noscript><p class="hint">当前浏览器未启用脚本，可在上方输入材料顺序号或区间，点击“预览任务安排”后核对。</p></noscript>
+    </div>
+  </section>
+  <div class="round-submit"><p class="hint">预览会显示选中的材料和每位成员的任务数量，尚不创建任务。</p><button class="button" type="submit" name="action" value="preview" data-round-preview>预览任务安排</button></div>
+</form>
+{{ unit_index|json_script:'round-unit-index' }}
+<script src="{% static 'round_selection.js' %}" defer></script>
+{% endblock %}

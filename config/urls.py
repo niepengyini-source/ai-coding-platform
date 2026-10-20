@@ -7,6 +7,8 @@ from coding import file_views as f
 from coding import workflow_views as w
 from coding import workspace_views as workspace
 from coding import split_views as splitting
+from coding import task_arrangement as arrangement
+from coding import team_guidance as team
 from coding.account_forms import PlatformLoginForm
 
 urlpatterns = [
@@ -22,6 +24,7 @@ urlpatterns = [
     path('projects/new/', v.project_new, name='project_new'),
     path('p/<int:project_id>/', v.project_view, name='project'),
     path('p/<int:project_id>/members/', v.members, name='members'),
+    path('p/<int:project_id>/team-setup/', team.team_setup, name='team_setup'),
     path('p/<int:project_id>/invitation/', a.invitation_manage, name='invitation_manage'),
     path('p/<int:project_id>/requests/<int:application_id>/review/', a.join_review, name='join_review'),
     path('p/<int:project_id>/materials/', v.materials, name='materials'),
@@ -37,6 +40,7 @@ urlpatterns = [
     path('p/<int:project_id>/books/<int:book_id>/freeze/', v.book_freeze, name='book_freeze'),
     path('p/<int:project_id>/codes/<int:code_id>/remove/', v.code_remove, name='code_remove'),
     path('p/<int:project_id>/rounds/new/', v.round_new, name='round_new'),
+    path('p/<int:project_id>/rounds/units/', arrangement.unit_choices, name='round_unit_choices'),
     path('p/<int:project_id>/quick-start/', w.quick_start, name='quick_start'),
     path('p/<int:project_id>/code/', w.coding_entry, name='coding_entry'),
     path('p/<int:project_id>/quick/<int:round_id>/finish/', w.quick_finish, name='quick_finish'),

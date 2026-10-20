@@ -1,0 +1,12 @@
+{% extends 'base.html' %}
+{% block content %}
+<div class="page-heading"><h1>确认任务安排</h1><p>核对选取范围和每位成员的数量，确认后才会分配任务。</p></div>
+<section class="card">
+  <h2>{{ plan.name }}</h2>
+  <dl class="metadata"><dt>工作阶段</dt><dd>{{ kind_label }}</dd><dt>编码本</dt><dd>{{ book.title }} · v{{ book.version }}</dd><dt>材料选取</dt><dd>{{ selection_label }} · 共 {{ unit_count }} 条{% if plan.selection_mode == 'sequential' %} · 从材料第 {{ plan.start_position }} 条开始{% endif %}</dd><dt>任务分配</dt><dd>{{ distribution_label }}</dd></dl>
+  <div class="button-row">{% for member in members %}<span class="badge">{{ member.user.username }}：{{ member.task_count }} 条</span>{% endfor %}</div>
+  <form method="post">{% csrf_token %}<input type="hidden" name="preview_token" value="{{ preview_token }}"><div class="button-row"><button class="button" type="submit" name="action" value="confirm">确认分配任务</button><button class="button secondary" type="submit" name="action" value="edit">返回修改</button></div></form>
+</section>
+<section class="card"><div class="section-heading"><h2>本次选中的材料</h2><span class="muted">共 {{ unit_count }} 条</span></div><div class="table-wrap"><table><thead><tr><th>材料顺序</th><th>文本</th><th>来源</th></tr></thead><tbody>{% for unit in units %}<tr><td>第 {{ unit.selection_position }} 条<small class="block muted">系统编号 #{{ unit.pk }}</small></td><td class="preserve">{{ unit.text|truncatechars:300 }}</td><td>{{ unit.record.document.name }}<small class="block muted">原记录 {{ unit.record.position }}</small></td></tr>{% endfor %}</tbody></table></div>
+<form method="post" class="pagination">{% csrf_token %}<input type="hidden" name="preview_token" value="{{ preview_token }}"><input type="hidden" name="action" value="page">{% if units.has_previous %}<button class="button secondary" name="page" value="{{ units.previous_page_number }}">上一页</button>{% endif %}<span>{{ units.number }} / {{ units.paginator.num_pages }}</span>{% if units.has_next %}<button class="button secondary" name="page" value="{{ units.next_page_number }}">下一页</button>{% endif %}</form></section>
+{% endblock %}

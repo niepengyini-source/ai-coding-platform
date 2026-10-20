@@ -156,9 +156,20 @@ def create_project(session, owner, name):
     return project
 
 
+def preparation_next(session, text, project, destination):
+    link = re.search(r'class="button setup-next" href="([^\"]+)"', text)
+    check('preparation points to ' + destination, link is not None and unescape(link[1]) == destination)
+    before = business_state(project)
+    status, body, _ = session.follow(session.send(unescape(link[1])))
+    check('preparation next opens ' + destination, status == 200)
+    check('preparation navigation is read-only', business_state(project) == before)
+    return body.decode('utf-8')
+
+
 def prepare_project(session, project):
     path = f'/p/{project.pk}/materials/'
-    session.page(path, project)
+    page = session.page(path, project)
+    check('upload begins preparation step one', 'data-setup-stage="1"' in page)
     raw = ('message_id,group_id,created_at,speaker_id,content\n'
            'F1,FG1,2026-10-17 10:00,FS1,虚构讨论：先安排目标。\n'
            'F2,FG1,2026-10-17 10:01,FS2,虚构讨论：检查一下结果。\n').encode('utf-8')
@@ -167,6 +178,8 @@ def prepare_project(session, project):
     match = re.search(rb'name="draft_id" value="([^\"]+)"', body)
     check('material preview before confirmation', status == 200 and match is not None
           and SourceRecord.objects.filter(document__project=project).count() == before)
+    check('material preview keeps step one and no bypass', b'data-setup-stage="1"' in body
+          and b'class="button setup-next"' not in body)
     response = session.send(path, {'draft_id': match[1].decode(), 'sheet_name': '',
                                   'text_column': 'content', 'context_column': 'group_id'})
     check('material confirmation redirects', response[0] == 302 and response[2]['Location'] == f'/p/{project.pk}/units/')
@@ -178,13 +191,26 @@ def prepare_project(session, project):
     response = session.send(f'/p/{project.pk}/code/')
     check('missing rules routes to current codebook', response[0] == 302
           and response[2]['Location'] == f'/p/{project.pk}/books/{book.pk}/')
-    session.page(f'/p/{project.pk}/units/', project)
-    session.page(f'/p/{project.pk}/books/{book.pk}/', project)
-    for key, name, definition in [('PLAN', '计划', '明确下一步目标或任务。'), ('CHECK', '检查', '核对进度或结果。')]:
-        book.refresh_from_db()
-        response = session.send(f'/p/{project.pk}/books/{book.pk}/', {'revision': book.revision,
-            'key': key, 'name': name, 'definition': definition})
-        check('add rule ' + key, response[0] == 302 and book.codes.filter(key=key).exists())
+    page = session.page(f'/p/{project.pk}/units/', project)
+    check('material completed guide is step two', 'data-setup-stage="2"' in page and '材料已就绪' in page)
+    page = preparation_next(session, page, project, f'/p/{project.pk}/books/{book.pk}/')
+    book_path = f'/p/{project.pk}/books/{book.pk}/import/'
+    page = preparation_next(session, page, project, book_path)
+    rules = 'Code,Name,Definition\nPLAN,计划,明确下一步目标或任务。\nCHECK,检查,核对进度或结果。\n'.encode('utf-8')
+    response = session.send(book_path, {'action': 'upload', 'auto_preview': 'yes'}, upload=('fictional-rules.csv', rules))
+    status, body, _ = session.follow(response)
+    check('rules preview stays step two until confirmation', status == 200 and b'data-setup-stage="2"' in body
+          and not project.codebooks.first().codes.exists() and b'class="button setup-next"' not in body)
+    draft = re.search(rb'name="draft_id" value="([^\"]+)"', body)
+    check('rules preview has confirmation form', draft is not None)
+    response = session.send(book_path, {'draft_id': draft[1].decode(), 'action': 'confirm', 'confirmed': 'yes'})
+    status, body, _ = session.follow(response)
+    book = project.codebooks.first()
+    check('rules confirmed and next step visible', status == 200 and book.codes.count() == 2
+          and b'data-setup-stage="3"' in body)
+    page = preparation_next(session, body.decode('utf-8'), project, f'/p/{project.pk}/code/')
+    check('confirmation ends guide without loop', 'data-setup-stage="3"' in page
+          and '确认编码准备' in page and 'class="button setup-next"' not in page and not project.rounds.exists())
     page = session.page(f'/p/{project.pk}/', project)
     check('resources ready recommends start', heading(page) == '材料与编码本已准备好')
     check('project has all five guide labels', all(label in page for label in (

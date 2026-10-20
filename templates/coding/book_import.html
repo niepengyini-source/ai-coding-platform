@@ -1,7 +1,7 @@
 {% extends 'base.html' %}
 {% block content %}
 <div class="page-heading"><h1>导入编码本</h1><p>上传文件，检查识别结果，确认后即可使用。已有规则和编码答案不会被覆盖。</p></div>
-<ol class="import-steps" aria-label="编码本导入步骤"><li {% if not mapping_form %}aria-current="step"{% endif %}>1 · 上传文件</li><li {% if mapping_form %}aria-current="step"{% endif %}>2 · 检查结果</li><li>3 · 确认导入</li></ol>
+{% if workflow.preparation %}{% include 'coding/workflow_hint.html' %}{% else %}<ol class="import-steps" aria-label="编码本导入步骤"><li {% if not mapping_form %}aria-current="step"{% endif %}>1 · 上传文件</li><li {% if mapping_form %}aria-current="step"{% endif %}>2 · 检查结果</li><li>3 · 确认导入</li></ol>{% endif %}
 {% if error %}<div class="notice danger" role="alert">{{ error }}</div>{% endif %}
 {% if mapping_form %}
 <section class="card"><h2>有些内容需要你确认</h2><p>{{ draft.filename }} · {{ row_count }}条非空记录</p><p>只需确认哪列是编码编号、哪列是定义。其他设置通常不用改。</p>

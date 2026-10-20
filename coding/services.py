@@ -2,15 +2,14 @@ import csv
 import hashlib
 import io
 import json
-import random
 import zipfile
 from pathlib import Path
-from collections import defaultdict
 from django.db import transaction
 from django.db.models import Q
 from django.utils import timezone
 from .models import (Project, SourceDocument, SourceRecord, Unit, Codebook, Code, Round,
                      Assignment, Decision, AuditEvent)
+from .selection import select_round_units
 
 
 class Conflict(ValueError):
@@ -131,55 +130,40 @@ def clone_book(project, actor, source, title, policy, change_note):
 
 
 @transaction.atomic
-def create_round(project, actor, book_id, name, kind, coder_ids, count, seed, distribution, double_percent, stratify='', unit_ids=None):
+def create_round(project, actor, book_id, name, kind, coder_ids, count, seed, distribution, double_percent,
+                 stratify='', unit_ids=None, selection_mode='random', start_position=None):
     Project.objects.select_for_update().get(pk=project.pk)
-    if kind == 'quick' and (coder_ids != [actor.pk] or count or distribution != 'all' or stratify or unit_ids):
+    if kind == 'quick' and (coder_ids != [actor.pk] or count or distribution != 'all' or stratify or unit_ids
+                            or selection_mode != 'random' or start_position not in (None, 1)):
         raise ValueError('快速开始只能为本人编码全部有效单元，不分配他人任务。')
+    if len(coder_ids) != len(set(coder_ids)):
+        raise ValueError('编码员不能重复，请核对任务成员。')
     book = Codebook.objects.select_for_update().get(project=project, pk=book_id)
     if not book.codes.exists():
         raise ValueError('请先填写至少一个代码及其定义。')
     valid_coders = set(project.memberships.exclude(role='viewer').filter(user__is_active=True).values_list('user_id', flat=True))
     if not coder_ids or not set(coder_ids).issubset(valid_coders):
         raise ValueError('编码员必须是本项目可编码的成员。')
-    units = list(Unit.objects.filter(record__document__project=project, active=True).select_related('record'))
     requested_ids = set(unit_ids or [])
-    if requested_ids:
-        available_ids = {u.id for u in units}
-        if not requested_ids.issubset(available_ids):
-            raise ValueError('指定编号必须是本项目当前有效的编码单元；已拆分、合并或排除的旧编号不能再分配。')
-        units = [u for u in units if u.id in requested_ids]
-    if not units:
-        raise ValueError('请先导入材料并确认编码单元。')
-    count = count or len(units)
-    if count > len(units):
-        raise ValueError('抽样数量超过现有单元数。')
-    rng = random.Random(seed)
-    if kind == 'quick':
-        selected = units
-    elif stratify:
-        groups = defaultdict(list)
-        for unit in units:
-            groups[str(unit.record.metadata.get(stratify, ''))].append(unit)
-        ordered = list(groups.values())
-        rng.shuffle(ordered)
-        for group in ordered:
-            rng.shuffle(group)
-        selected = []
-        while len(selected) < count:
-            for group in ordered:
-                if group and len(selected) < count:
-                    selected.append(group.pop())
-    else:
-        selected = rng.sample(units, count)
+    selected = select_round_units(project, count, seed, stratify, unit_ids,
+                                  'sequential' if kind == 'quick' else selection_mode,
+                                  1 if kind == 'quick' else start_position)
+    count = len(selected)
     visible_ids = sorted(set(Assignment.objects.filter(round__project=project, unit_id__in=[u.id for u in selected])
                              .filter(Q(round__kind='training') | Q(round__state__in=['review', 'closed']))
                              .values_list('unit_id', flat=True)))
     book.frozen = True
     book.revision += 1
     book.save(update_fields=['frozen', 'revision'])
+    method = {'sequential': '按材料顺序连续选取', 'manual': '手动指定单元'}
+    method = (method[selection_mode] if selection_mode in method else
+              ('指定单元池＋' if requested_ids else '') + ('分层轮流抽样' if stratify else '随机抽样'))
     r = Round.objects.create(project=project, book=book, name=name, kind=kind,
         started_by=actor if kind == 'quick' else None,
-        sampling={'method': '个人快速开始：全部有效单元，按原文顺序' if kind == 'quick' else ('指定单元池＋' if requested_ids else '') + ('分层轮流抽样' if stratify else '随机抽样'), 'seed': seed, 'stratify': stratify,
+        sampling={'method': '个人快速开始：全部有效单元，按原文顺序' if kind == 'quick' else method,
+                  'selection_mode': 'all' if kind == 'quick' else selection_mode,
+                  'start_position': (start_position or 1) if selection_mode == 'sequential' and kind != 'quick' else None,
+                  'seed': seed, 'stratify': stratify,
                   'specified_pool_ids': sorted(requested_ids),
                   'previously_visible_unit_ids': visible_ids,
                   'count': count, 'distribution': distribution, 'double_percent': double_percent,

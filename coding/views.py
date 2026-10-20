@@ -460,18 +460,8 @@ def code_remove(request, project_id, code_id):
 
 @login_required
 def round_new(request, project_id):
-    from .round_forms import RoundForm
-    project, role = access(request, project_id, ['owner', 'reviewer'])
-    form = RoundForm(request.POST or None, project=project)
-    if request.method == 'POST' and form.is_valid():
-        try:
-            r = create_round(project, request.user, **form.cleaned_data)
-            return redirect('workbench', r.id) if r.assignments.filter(coder=request.user, superseded=False).exists() else redirect('progress', project.id)
-        except (ValueError, OperationalError) as error:
-            form.add_error(None, str(error))
-    return render(request, 'coding/form.html', {'project': project, 'role': role, 'form': form,
-                                               'title': '安排新一轮编码', 'button': '开始编码并分配任务',
-                                               'hint': '新轮次固定当前单元和规则版本。培训可公开讨论，独立试编码与正式编码提交前隐藏他人答案。'})
+    from .task_arrangement import arrange_round
+    return arrange_round(request, project_id)
 
 
 @login_required
