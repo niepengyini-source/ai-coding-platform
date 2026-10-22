@@ -34,7 +34,7 @@ class HistorySearchForm(forms.Form):
     round_id = forms.ModelChoiceField(label='编码批次 / 轮次', required=False, queryset=Round.objects.none())
     book_version = forms.IntegerField(label='编码本版本号', required=False, min_value=1, max_value=10**9)
     status = forms.ChoiceField(label='保存状态', required=False, choices=[('', '全部状态'), ('draft', '草稿'), ('submitted', '已提交')])
-    uncertain = forms.ChoiceField(label='不确定标记', required=False, choices=[('', '不限'), ('yes', '有疑点'), ('no', '无疑点')])
+    uncertain = forms.ChoiceField(label='复核标记', required=False, choices=[('', '不限'), ('yes', '需复核'), ('no', '未标记需复核')])
     entry_kind = forms.ChoiceField(label='开始方式', required=False, choices=[('', '不限'), ('quick', '个人快速编码'), ('assigned', '已安排任务')])
 
     def __init__(self, *args, project, user, **kwargs):

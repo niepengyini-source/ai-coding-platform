@@ -129,6 +129,7 @@ class SourceDocument(models.Model):
     text_column = models.CharField(max_length=200)
     context_column = models.CharField(max_length=200, blank=True)
     sheet_name = models.CharField(max_length=200, blank=True)
+    display_mapping = models.JSONField(default=dict, blank=True)
     import_note = models.TextField(blank=True)
     created_at = models.DateTimeField(auto_now_add=True)
 

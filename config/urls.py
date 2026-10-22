@@ -28,6 +28,7 @@ urlpatterns = [
     path('p/<int:project_id>/invitation/', a.invitation_manage, name='invitation_manage'),
     path('p/<int:project_id>/requests/<int:application_id>/review/', a.join_review, name='join_review'),
     path('p/<int:project_id>/materials/', v.materials, name='materials'),
+    path('p/<int:project_id>/materials/<int:document_id>/display/', v.source_display, name='source_display'),
     path('p/<int:project_id>/units/', v.units, name='units'),
     path('p/<int:project_id>/units/<int:unit_id>/', v.change_unit, name='change_unit'),
     path('p/<int:project_id>/books/new/', v.book_new, name='book_new'),

@@ -5,6 +5,7 @@
 <script src="{% static 'context.js' %}" defer></script>
 <script src="{% static 'project_navigation.js' %}" defer></script>
 <link rel="stylesheet" href="{% static 'shortcuts.css' %}">
+<link rel="stylesheet" href="{% static 'source_information.css' %}">
 <link rel="stylesheet" href="{% static 'app.css' %}"><link rel="stylesheet" href="{% static 'controls.css' %}"><link rel="stylesheet" href="{% static 'workspace.css' %}"><link rel="stylesheet" href="{% static 'journey.css' %}"><script src="{% static 'app.js' %}" defer></script><script src="{% static 'code_picker.js' %}" defer></script><script src="{% static 'splitting.js' %}" defer></script><script src="{% static 'navigation.js' %}" defer></script><script src="{% static 'file_tools.js' %}" defer></script><script src="{% static 'workflow.js' %}" defer></script><script src="{% static 'archiving.js' %}" defer></script><script src="{% static 'shortcuts.js' %}" defer></script><script src="{% static 'task_navigation.js' %}" defer></script></head>
 {% with layout_page=request.resolver_match.url_name %}{% project_workflow as workflow %}<body class="{% if not user.is_authenticated or workspace_entry or layout_page == 'login' or layout_page == 'register' %}workspace-layout{% endif %}" data-navigation-user="{% if user.is_authenticated %}{{ user.pk }}{% else %}anonymous{% endif %}">
 {% if user.is_authenticated and not workspace_entry and layout_page != 'login' and layout_page != 'register' %}

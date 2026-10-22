@@ -9,14 +9,15 @@ const defaults={primary:'Alt+Q',secondary:'Alt+E',save:'Alt+F',next:'Alt+G',pick
 
 function setup({user='1', withForm=true, withSettings=false, count=3, initial='', stored=null, storageFails=false, modal=true, fallback=false,
   sessionValues=new Map(), storedMode=null, mode='annotation', scope='1', formState={}, primaryDisabled=false, sessionFails=false,
-  nextHook=true, beforeNavigation=()=>Promise.resolve(0), skipUrl, projectId='1',withSkipPrompt=true,nextUrls=[],withCompletionDialog=true}={}) {
+  nextHook=true, beforeNavigation=()=>Promise.resolve(0), skipUrl, projectId='1',withSkipPrompt=true,nextUrls=[],withCompletionDialog=true,
+  definitions=[],labels=[],viewportWidth=1024,viewportHeight=768}={}) {
   const events = {}, windowEvents = {}, observers = [], writes = [], sessionWrites=[], navigations=[],prepOptions=[];
   let changes=0, clicks=0, nextClicks=0, nextCalls=0, prepCalls=0,modalCalls=0,showCalls=0;
   const document = {activeElement:null, body:{dataset:{navigationUser:user}},
     addEventListener(name, callback) { events[name] = callback; },
   };
   function element(properties={}) {
-    return {disabled:false, hidden:false, checked:false, value:'', dataset:{}, children:[], attributes:{}, handlers:{}, isConnected:true,tagName:'DIV',type:'text',parentElement:null,
+    return {disabled:false, hidden:false, checked:false, value:'', dataset:{}, style:{}, children:[], attributes:{}, handlers:{}, isConnected:true,tagName:'DIV',type:'text',parentElement:null,
       get isContentEditable(){return this.parentElement?.isContentEditable||false;},
       classList:{values:new Set(),toggle(name,force){const enabled=force??!this.values.has(name);if(enabled)this.values.add(name);else this.values.delete(name);return enabled;},contains(name){return this.values.has(name);}},
       addEventListener(name, callback) { (this.handlers[name] ||= []).push(callback); },
@@ -64,16 +65,20 @@ function setup({user='1', withForm=true, withSettings=false, count=3, initial=''
   const emitChange=event=>{changes++; form.dispatchEvent({type:'change',target:event.target});};
   primary.addEventListener('change',emitChange); secondary.forEach(input=>input.addEventListener('change',emitChange));
   const codeButtons=Array.from({length:count},(_,index)=>{
-    const id=String(index+1), card={querySelector:()=>({textContent:`定义 ${index+1} details`})};
-    const button=element({tagName:'BUTTON',dataset:{codeChoice:id,label:`C${id} · 代码 ${id}`},closest:selector=>selector==='[data-code-card]'?card:null});
+    const id=String(index+1), card={querySelector:()=>({textContent:definitions[index] || `定义 ${index+1} details`})};
+    const button=element({tagName:'BUTTON',dataset:{codeChoice:id,label:labels[index] || `C${id} · 代码 ${id}`},closest:selector=>selector==='[data-code-card]'?card:null});
     button.addEventListener('click',()=>{primary.value=id;noCode.checked=false;secondary.forEach(input=>{if(input.value===id)input.checked=false;});primary.dispatchEvent({type:'change'});});
     return button;
   });
   primary.options = [{value:'',textContent:'请选择',dataset:{}},...codeButtons.map((button,index)=>({value:button.dataset.codeChoice,textContent:button.dataset.label,dataset:{definition:`协商定义 ${index+1}`}}))];
   const openButtons=['primary','secondary'].map(action=>element({dataset:{shortcutOpen:action}}));
   const toolbar=element({hidden:true,querySelectorAll:()=>openButtons});
+  const confirmationStatus=element({hidden:true}),fullDefinition=element({hidden:true,open:false}),definitionText=element();
+  const dragHandle=element(),resizeHandle=element({tagName:'BUTTON'}),resetWindowButton=element({tagName:'BUTTON'});
   const dialog=element({hidden:true,open:false,show:modal?function(){this.open=true;showCalls++;}:undefined,showModal:modal?function(){this.open=true;modalCalls++;}:undefined,close(){this.open=false;},
-    querySelector(selector){return {'[data-shortcut-search]':search,'[data-shortcut-list]':list,'[data-shortcut-close]':closeButton,'#shortcut-dialog-title':title,'[data-shortcut-count]':total,'[data-shortcut-empty]':empty}[selector];}});
+    querySelector(selector){return {'[data-shortcut-search]':search,'[data-shortcut-list]':list,'[data-shortcut-close]':closeButton,'#shortcut-dialog-title':title,'[data-shortcut-count]':total,'[data-shortcut-empty]':empty,
+      '[data-shortcut-confirm-status]':confirmationStatus,'[data-shortcut-definition]':fullDefinition,'[data-shortcut-definition-text]':definitionText,
+      '[data-shortcut-drag]':dragHandle,'[data-shortcut-resize]':resizeHandle,'[data-shortcut-window-reset]':resetWindowButton}[selector];}});
   const completionDialog=element({tagName:'DIALOG',open:false});
   const settingsFields=actions.map(action=>element({tagName:'INPUT',dataset:{shortcutRecord:action}}));
   const settingsForm=element(), settingsStatus=element(), reset=element();
@@ -91,7 +96,7 @@ function setup({user='1', withForm=true, withSettings=false, count=3, initial=''
     removeItem(key){if(sessionFails)throw Error('denied');sessionValues.delete(key);sessionWrites.push({action:'remove',key});},
   };
   const location={origin:'http://127.0.0.1:8001',href:`http://127.0.0.1:8001/r/${scope}/?a=1`,assign(url){navigations.push(url);}};
-  const window={sessionStorage,location,addEventListener(name,callback){windowEvents[name]=callback;},dispatchEvent(event){windowEvents[event.type]?.(event);}};
+  const window={sessionStorage,location,innerWidth:viewportWidth,innerHeight:viewportHeight,addEventListener(name,callback){windowEvents[name]=callback;},dispatchEvent(event){windowEvents[event.type]?.(event);}};
   vm.runInNewContext(source,{document,window,location,URL,localStorage:storage,sessionStorage,MutationObserver:class{constructor(callback){observers.push(callback);}observe(){}},Event:class{constructor(type,options={}){this.type=type;Object.assign(this,options);}}});
   function key(key, properties={}) {
     const event={key,ctrlKey:false,altKey:false,shiftKey:false,metaKey:false,defaultPrevented:false,target:document.activeElement,
@@ -101,6 +106,8 @@ function setup({user='1', withForm=true, withSettings=false, count=3, initial=''
   function record(action,keyValue,properties) { settingsFields.find(field=>field.dataset.shortcutRecord===action).focus(); key(keyValue,properties); }
   return {document,window,element,api:window.PlatformShortcuts,form,primary,noCode,secondary,save,next,search,list,dialog,toolbar,openButtons,total,empty,title,closeButton,hints,codeButtons,
     settings,settingsForm,settingsStatus,settingsFields,reset,writes,key,record,windowEvents,sessionValues,sessionWrites,modeKey,note,navigations,skipPrompt,skipConfirm,skipCancel,skipButtons,skipButtonHints,nextLinks,completionDialog,prepOptions,
+    confirmationStatus,fullDefinition,definitionText,dragHandle,resizeHandle,resetWindowButton,
+    pointer(target,type,x,y,extra={}){const event={type,button:0,pointerId:1,clientX:x,clientY:y,target,currentTarget:target,preventDefault(){this.defaultPrevented=true;},...extra};if(type==='pointerdown')target.dispatchEvent(event);else events[type]?.(event);return event;},
     openCompletion(){window.dispatchEvent({type:'platform:task-completion-open'});completionDialog.open=true;},
     clickNext(index=0,properties={}){const event={type:'click',button:0,defaultPrevented:false,preventDefault(){this.defaultPrevented=true;},...properties};nextLinks[index].dispatchEvent(event);return event;},
     searchFor(text){search.focus();search.value=text;search.dispatchEvent({type:'input'});},
@@ -176,7 +183,7 @@ test('Arrow, Home, End and Enter select any code without fixed numeric bindings'
   assert.equal(ui.list.children.length,150); ui.key('End');
   assert.equal(ui.list.attributes['aria-activedescendant'],'shortcut-code-149');
   ui.key('Home'); ui.key('ArrowDown'); ui.key('ArrowUp'); ui.key('ArrowDown'); ui.key('Enter');
-  assert.equal(ui.primary.value,'2'); assert.equal(ui.changes(),1); assert.equal(ui.dialog.open,false);
+  assert.equal(ui.primary.value,'2'); assert.equal(ui.changes(),1); assert.equal(ui.dialog.open,true);
   ui.key('q',{altKey:true}); ui.key('End'); ui.key('Enter'); assert.equal(ui.primary.value,'150');
 });
 
@@ -206,14 +213,15 @@ test('empty search handles Enter without submitting or changing data',()=>{
   assert.equal(event.defaultPrevented,true); assert.equal(ui.changes(),0); assert.equal(ui.dialog.open,true);
 });
 
-test('nonmodal chooser allows native Tab focus and never fires save or next shortcuts while choosing',()=>{
+test('nonmodal chooser allows native Tab focus and respects disabled save and next buttons before choosing',()=>{
   const ui=setup(); ui.key('q',{altKey:true});
   assert.equal(ui.showCalls(),1); assert.equal(ui.modalCalls(),0);
   assert.equal(ui.key('Tab').defaultPrevented,false); assert.equal(ui.key('Tab',{shiftKey:true}).defaultPrevented,false);
   ui.search.focus();
+  ui.save.disabled=true; ui.next.disabled=true;
   ui.key('f',{altKey:true}); ui.key('g',{altKey:true});
   assert.equal(ui.clicks(),0); assert.equal(ui.nextClicks(),0); assert.equal(ui.primary.value,'');
-  ui.key('Enter',{ctrlKey:true}); assert.equal(ui.clicks(),0); assert.equal(ui.primary.value,'1');
+  ui.key('Enter',{ctrlKey:true}); assert.equal(ui.clicks(),0); assert.equal(ui.primary.value,'');
 });
 
 test('plain text, IME events, repeats and pre-consumed shortcuts do not hijack editing',()=>{
@@ -325,7 +333,7 @@ test('default left-hand combinations complete primary, secondary, save, next and
   const ui=setup();
   ui.key('q',{altKey:true}); ui.key('s'); ui.key('s'); ui.key('w');
   assert.equal(ui.list.attributes['aria-activedescendant'],'shortcut-code-1');
-  ui.key('Enter'); assert.equal(ui.primary.value,'2'); assert.equal(ui.dialog.open,false);
+  ui.key('Enter'); assert.equal(ui.primary.value,'2'); assert.equal(ui.dialog.open,true);
   ui.key('e',{altKey:true}); ui.key('s'); ui.key('Enter');
   assert.equal(ui.primary.value,'2'); assert.deepEqual(ui.secondary.map(input=>input.checked),[false,false,true]);
   ui.key('f',{altKey:true}); ui.key('g',{altKey:true});
@@ -365,6 +373,7 @@ test('W and S type normally in picker search and resume navigation only after li
 
 test('picker combinations handle empty search results and close without coding or submitting',()=>{
   const ui=setup(); ui.key('q',{altKey:true}); ui.searchFor('没有这样的代码'); ui.list.focus();
+  ui.save.disabled=true; ui.next.disabled=true;
   for(const [key,properties] of [['s',{}],['w',{}],['Enter',{}]]) {
     assert.equal(ui.key(key,properties).defaultPrevented,true,key);
     assert.equal(ui.dialog.open,true); assert.equal(ui.changes(),0);
@@ -404,7 +413,7 @@ test('all four chooser actions are customizable and apply only after the full se
   ui.save.focus(); ui.key('q',{altKey:true});
   assert.equal(ui.key('s').defaultPrevented,false);
   ui.key('d',{altKey:true}); ui.key('d',{altKey:true}); ui.key('t',{altKey:true}); ui.key('a',{altKey:true});
-  assert.equal(ui.primary.value,'2'); assert.equal(ui.dialog.open,false);
+  assert.equal(ui.primary.value,'2'); assert.equal(ui.dialog.open,true);
   ui.key('q',{altKey:true}); ui.key('v',{altKey:true}); assert.equal(ui.dialog.open,false);
 });
 
@@ -445,9 +454,11 @@ test('legacy conflicts keep every user binding, disable only conflicting chooser
   for(const key of ['Alt','Control','Shift','Meta','a']) assert.equal(ui.key(key).defaultPrevented,false,key);
   assert.equal(ui.clicks(),0); assert.equal(ui.nextClicks(),0);
   ui.key('z',{altKey:true}); assert.equal(ui.dialog.open,true);
+  ui.save.disabled=true; ui.next.disabled=true;
   ui.key('s',{altKey:true}); ui.key('w',{altKey:true});
   assert.equal(ui.dialog.open,true); assert.equal(ui.clicks(),0); assert.equal(ui.nextClicks(),0);
   ui.key('ArrowDown'); ui.key('Enter'); assert.equal(ui.primary.value,'2');
+  ui.save.disabled=false; ui.next.disabled=false;
   ui.key('s',{altKey:true}); ui.key('w',{altKey:true}); assert.equal(ui.clicks(),1); assert.equal(ui.nextClicks(),1);
   ui.submitSettings(); assert.equal(ui.writes.length,0); assert.match(ui.settingsStatus.textContent,/组合/);
   ui.reset.click(); assert.deepEqual(JSON.parse(ui.writes[0].value),defaults);
@@ -487,7 +498,7 @@ test('Alt+Q activates continuous coding and Enter keeps it active for the next u
   assert.equal(ui.sessionValues.has(ui.modeKey),false);
   ui.key('q',{altKey:true}); assert.equal(ui.sessionValues.get(ui.modeKey),'on');
   assert.equal(ui.document.activeElement,ui.list); ui.key('s'); ui.key('Enter');
-  assert.equal(ui.primary.value,'2'); assert.equal(ui.dialog.open,false); assert.equal(ui.sessionValues.get(ui.modeKey),'on');
+  assert.equal(ui.primary.value,'2'); assert.equal(ui.dialog.open,true); assert.equal(ui.sessionValues.get(ui.modeKey),'on');
   ui.key('g',{altKey:true}); assert.equal(ui.nextClicks(),1);
   const next=setup({sessionValues:ui.sessionValues});
   assert.equal(next.dialog.open,true); assert.equal(next.document.activeElement,next.list);
@@ -510,7 +521,7 @@ test('primary and secondary shortcuts switch the open chooser without saving or 
   ui.key('q',{altKey:true}); assert.equal(ui.title.textContent,'选择主代码'); assert.equal(ui.list.children.length,3);
   ui.key('e',{altKey:true}); ui.key('s'); ui.key('Enter');
   assert.equal(ui.primary.value,'1'); assert.deepEqual(ui.secondary.map(input=>input.checked),[false,false,true]);
-  assert.equal(ui.document.activeElement,ui.form);
+  assert.equal(ui.document.activeElement,ui.list);
   assert.equal(ui.clicks(),0); assert.equal(ui.nextClicks(),0); assert.equal(ui.sessionValues.get(ui.modeKey),'on');
   const next=setup({sessionValues:ui.sessionValues}); assert.equal(next.title.textContent,'选择主代码');
 });
@@ -524,9 +535,9 @@ test('continuous mode is isolated by account, round and current-tab session stor
   assert.equal(ui.sessionValues.size,1);
 });
 
-test('Alt+X exits continuous mode after confirmation even while the chooser is already closed',()=>{
+test('Alt+X exits continuous mode after confirmation without changing the selected code',()=>{
   const ui=setup(); ui.key('q',{altKey:true}); ui.key('Enter');
-  assert.equal(ui.dialog.open,false); assert.equal(ui.sessionValues.get(ui.modeKey),'on');
+  assert.equal(ui.dialog.open,true); assert.equal(ui.sessionValues.get(ui.modeKey),'on');
   assert.equal(ui.key('x',{altKey:true}).defaultPrevented,true);
   assert.equal(ui.sessionValues.has(ui.modeKey),false); assert.equal(ui.primary.value,'1'); assert.equal(ui.changes(),1);
   assert.equal(setup({sessionValues:ui.sessionValues}).dialog.open,false);
@@ -656,7 +667,7 @@ test('mode selectors 1 and 2 require active quick mode and select primary or sec
   assert.equal(ui.key('1').defaultPrevented,true); assert.equal(ui.title.textContent,'选择主代码');
   ui.key('2'); ui.key('s'); ui.key('Enter');
   assert.equal(ui.primary.value,'1'); assert.deepEqual(ui.secondary.map(input=>input.checked),[false,false,true]);
-  assert.equal(ui.document.activeElement,ui.form); assert.equal(ui.nextCalls(),0);
+  assert.equal(ui.document.activeElement,ui.list); assert.equal(ui.nextCalls(),0);
 });
 
 test('mode selector digits remain normal text in search, notes, selects and editable content',()=>{
@@ -665,17 +676,17 @@ test('mode selector digits remain normal text in search, notes, selects and edit
   assert.equal(ui.title.textContent,'选择主代码'); ui.key('Enter');
   for(const target of [ui.note,ui.primary,ui.search]) {
     target.focus(); for(const key of ['1','2']) assert.equal(ui.key(key).defaultPrevented,false,`${target.tagName}: ${key}`);
-    assert.equal(ui.dialog.open,false);
+    assert.equal(ui.dialog.open,true);
   }
   const editable={tagName:'DIV',isContentEditable:true,focus(){ui.document.activeElement=this;},closest(){return this;}};
   editable.focus(); assert.equal(ui.key('1').defaultPrevented,false); assert.equal(ui.key('2').defaultPrevented,false);
-  assert.equal(ui.dialog.open,false); assert.equal(ui.nextCalls(),0);
+  assert.equal(ui.dialog.open,true); assert.equal(ui.nextCalls(),0);
 });
 
 test('first Enter selects code and only the second Enter submits next with primary present and optional secondary',async()=>{
   const ui=setup(); ui.key('q',{altKey:true}); ui.key('s');
-  ui.key('Enter'); assert.equal(ui.primary.value,'2'); assert.equal(ui.dialog.open,false);
-  assert.equal(ui.document.activeElement,ui.form); assert.equal(ui.nextCalls(),0);
+  ui.key('Enter'); assert.equal(ui.primary.value,'2'); assert.equal(ui.dialog.open,true);
+  assert.equal(ui.document.activeElement,ui.list); assert.equal(ui.nextCalls(),0);
   assert.deepEqual(ui.secondary.map(input=>input.checked),[false,false,false]);
   assert.equal(ui.key('Enter').defaultPrevented,true); await new Promise(setImmediate);
   assert.equal(ui.nextCalls(),1); assert.equal(ui.nextClicks(),1); assert.equal(ui.sessionValues.get(ui.modeKey),'on');
@@ -690,7 +701,8 @@ test('second Enter never advances without primary or from a typing field, inacti
     const ui=setup({initial:'1',storedMode:'on',...options}); ui.form.focus(); ui.key('Enter'); assert.equal(ui.nextCalls(),0,JSON.stringify(options));
   }
   const ui=setup(); ui.key('q',{altKey:true}); ui.key('Enter');
-  for(const target of [ui.note,ui.primary,ui.search]) { target.focus(); assert.equal(ui.key('Enter').defaultPrevented,false,target.tagName); }
+  for(const target of [ui.note,ui.primary]) { target.focus(); assert.equal(ui.key('Enter').defaultPrevented,false,target.tagName); }
+  ui.search.focus(); assert.equal(ui.key('Enter').defaultPrevented,true); // Search Enter selects, never submits.
   await new Promise(setImmediate); assert.equal(ui.nextCalls(),0); assert.equal(inactive.nextCalls(),0);
 });
 
@@ -811,7 +823,8 @@ test('skip without a draft-flush hook fails safely instead of navigating with un
 test('second Enter delegates to the asynchronous next hook while a draft save is busy and deduplicates retries',async()=>{
   let complete,calls=0;
   const pending=new Promise(resolve=>{complete=resolve;});
-  const ui=setup({initial:'1',storedMode:'on',formState:{busy:'true'}});
+  const ui=setup({initial:'1',storedMode:'on'});
+  ui.key('Enter'); ui.form.dataset.busy='true'; ui.form.dataset.savingDraft='true'; ui.refresh();
   ui.form.platformSubmitNext=()=>{calls++;return pending;}; ui.form.focus();
   assert.equal(ui.key('Enter').defaultPrevented,true); ui.key('Enter');
   assert.equal(calls,1); assert.equal(ui.clicks(),0); assert.equal(ui.navigations.length,0);
@@ -831,13 +844,14 @@ test('mouse can edit notes while the nonmodal picker stays open without selectin
   assert.equal(ui.sessionValues.get(ui.modeKey),'on'); await new Promise(setImmediate); assert.equal(ui.nextCalls(),0);
 });
 
-test('mouse selection outside the picker preserves quick mode and form Enter advances instead of choosing a pending code',async()=>{
+test('mouse selection outside the picker resets confirmation and requires two deliberate Enter presses',async()=>{
   const ui=setup(); ui.key('q',{altKey:true}); ui.key('s');
   ui.codeButtons[2].focus(); ui.codeButtons[2].click();
   assert.equal(ui.primary.value,'3'); assert.equal(ui.changes(),1); assert.equal(ui.dialog.open,true);
   assert.equal(ui.sessionValues.get(ui.modeKey),'on');
   ui.form.focus(); assert.equal(ui.key('Enter').defaultPrevented,true); await new Promise(setImmediate);
-  assert.equal(ui.primary.value,'3'); assert.equal(ui.changes(),1); assert.equal(ui.nextCalls(),1);
+  assert.equal(ui.primary.value,'3'); assert.equal(ui.changes(),1); assert.equal(ui.nextCalls(),0);
+  ui.key('Enter'); await new Promise(setImmediate); assert.equal(ui.nextCalls(),1);
   assert.equal(ui.sessionValues.get(ui.modeKey),'on');
 });
 
@@ -1221,7 +1235,7 @@ test('quick-mode W/S reopen the last secondary chooser after mouse collapse with
 
 test('quick-mode W/S resume primary navigation after selecting a chooser option with the mouse',()=>{
   const ui=setup({count:4}); ui.key('q',{altKey:true}); ui.list.children[1].click();
-  assert.equal(ui.primary.value,'2'); assert.equal(ui.dialog.open,false);
+  assert.equal(ui.primary.value,'2'); assert.equal(ui.dialog.open,true);
   ui.element({tagName:'P'}).focus(); assert.equal(ui.key('s').defaultPrevented,true);
   assert.equal(ui.dialog.open,true); assert.equal(ui.title.textContent,'选择主代码');
   assert.equal(ui.list.attributes['aria-activedescendant'],'shortcut-code-2');
@@ -1255,7 +1269,7 @@ test('quick-mode navigation never steals W/S or 1/2 from text inputs, notes, sel
 test('quick-mode Enter confirms a pending code after mouse focus on material and then advances from body',async()=>{
   const ui=setup(); ui.key('q',{altKey:true}); ui.key('s'); ui.element({tagName:'P'}).focus();
   assert.equal(ui.key('Enter').defaultPrevented,true); assert.equal(ui.primary.value,'2');
-  assert.equal(ui.dialog.open,false); assert.equal(ui.nextCalls(),0);
+  assert.equal(ui.dialog.open,true); assert.equal(ui.nextCalls(),0);
   ui.document.body.focus(); assert.equal(ui.key('Enter').defaultPrevented,true);
   await new Promise(setImmediate); assert.equal(ui.nextCalls(),1);
   assert.equal(ui.sessionValues.get(ui.modeKey),'on');
@@ -1309,7 +1323,8 @@ test('quick-mode Enter resumes from form-owned radio and checkbox after mouse fo
     const target=targetName==='radio'?ui.secondary[1]:ui.noCode;
     ui.form.append(target); target.focus();
     assert.equal(ui.key('Enter').defaultPrevented,true,targetName);
-    await new Promise(setImmediate); assert.equal(ui.nextCalls(),1,targetName);
+    await new Promise(setImmediate); assert.equal(ui.nextCalls(),0,targetName);
+    ui.key('Enter'); await new Promise(setImmediate); assert.equal(ui.nextCalls(),1,targetName);
     assert.equal(ui.primary.value,'1',targetName); assert.deepEqual(ui.secondary.map(input=>input.checked),[false,false,false],targetName);
     assert.equal(ui.sessionValues.get(ui.modeKey),'on',targetName);
   }
@@ -1361,7 +1376,7 @@ test('custom quick navigation resumes after mouse focus, collapse and selection 
   assert.equal(ui.key('d').defaultPrevented,true); assert.equal(ui.title.textContent,'选择次代码');
   assert.equal(ui.list.attributes['aria-activedescendant'],'shortcut-code-1'); ui.key('Enter');
   assert.deepEqual(ui.secondary.map(input=>input.checked),[false,false,true,false,false]);
-  ui.note.focus(); assert.equal(ui.key('a').defaultPrevented,false); assert.equal(ui.key('d').defaultPrevented,false); assert.equal(ui.dialog.open,false);
+  ui.note.focus(); assert.equal(ui.key('a').defaultPrevented,false); assert.equal(ui.key('d').defaultPrevented,false); assert.equal(ui.dialog.open,true);
   ui.document.body.focus(); assert.equal(ui.key('a').defaultPrevented,true); assert.equal(ui.title.textContent,'选择次代码');
   assert.equal(ui.list.attributes['aria-activedescendant'],'shortcut-code-0'); ui.key('Enter');
   assert.deepEqual(ui.secondary.map(input=>input.checked),[false,true,false,false,false]); assert.equal(ui.primary.value,'1');
@@ -1370,8 +1385,8 @@ test('custom quick navigation resumes after mouse focus, collapse and selection 
 test('custom confirmation is used both to choose a code and to confirm next without a secondary',async()=>{
   const ui=setup({stored:JSON.stringify({...defaults,pickerConfirm:'Alt+Z'})});
   ui.key('q',{altKey:true});ui.key('s');ui.key('z',{altKey:true});
-  assert.equal(ui.primary.value,'2');assert.equal(ui.dialog.open,false);assert.equal(ui.nextCalls(),0);
-  assert.equal(ui.key('Enter').defaultPrevented,false);assert.equal(ui.nextCalls(),0);
+  assert.equal(ui.primary.value,'2');assert.equal(ui.dialog.open,true);assert.equal(ui.nextCalls(),0);
+  assert.equal(ui.key('Enter').defaultPrevented,true);assert.equal(ui.nextCalls(),0);
   ui.key('z',{altKey:true});await new Promise(setImmediate);assert.equal(ui.nextCalls(),1);
   assert.equal(ui.secondary.some(input=>input.checked),false);assert.equal(ui.sessionValues.get(ui.modeKey),'on');
 });
@@ -1415,4 +1430,165 @@ test('active quick mode respects pre-consumed navigation, mode, confirmation and
   ui.key('Enter',{altKey:true,defaultPrevented:true});
   await new Promise(setImmediate); assert.equal(ui.changes(),0); assert.equal(ui.nextCalls(),0); assert.equal(ui.prepCalls(),0);
   assert.equal(ui.navigations.length,0); assert.equal(ui.skipPrompt.hidden,true); assert.equal(ui.sessionValues.get(ui.modeKey),'on');
+});
+
+function windowRect(ui) {
+  return Object.fromEntries(['left','top','width','height'].map(key=>[key,parseFloat(ui.dialog.style[key])]));
+}
+function assertWindowFits(ui) {
+  const rect=windowRect(ui);
+  for(const value of Object.values(rect))assert.ok(Number.isFinite(value));
+  assert.ok(rect.left>=0&&rect.top>=0);
+  assert.ok(rect.left+rect.width<=ui.window.innerWidth);
+  assert.ok(rect.top+rect.height<=ui.window.innerHeight);
+  return rect;
+}
+
+test('dragging the window stays inside every viewport edge without changing the coding choice',()=>{
+  const ui=setup();ui.key('q',{altKey:true});
+  ui.pointer(ui.dragHandle,'pointerdown',600,200);
+  ui.pointer(ui.dragHandle,'pointermove',-10000,-10000);
+  let rect=assertWindowFits(ui);assert.equal(rect.left,12);assert.equal(rect.top,12);
+  ui.pointer(ui.dragHandle,'pointermove',10000,10000);
+  rect=assertWindowFits(ui);assert.equal(rect.left+rect.width,1012);assert.equal(rect.top+rect.height,756);
+  ui.pointer(ui.dragHandle,'pointerup',10000,10000);
+  assert.equal(ui.primary.value,'');assert.equal(ui.changes(),0);assert.equal(ui.nextCalls(),0);
+  assert.equal(ui.sessionValues.get(ui.modeKey),'on');
+});
+
+test('dragging ignores other pointers, non-left clicks and controls inside the title bar',()=>{
+  const ui=setup();ui.key('q',{altKey:true});const before=windowRect(ui);
+  ui.pointer(ui.dragHandle,'pointerdown',600,200,{button:2});ui.pointer(ui.dragHandle,'pointermove',10,10);
+  assert.deepEqual(windowRect(ui),before);
+  ui.pointer(ui.dragHandle,'pointerdown',600,200,{target:ui.closeButton});ui.pointer(ui.dragHandle,'pointermove',10,10);
+  assert.deepEqual(windowRect(ui),before);
+  ui.pointer(ui.dragHandle,'pointerdown',600,200);ui.pointer(ui.dragHandle,'pointermove',10,10,{pointerId:2});
+  assert.deepEqual(windowRect(ui),before);
+  ui.pointer(ui.dragHandle,'pointercancel',600,200);ui.pointer(ui.dragHandle,'pointermove',10,10);
+  assert.deepEqual(windowRect(ui),before);assert.equal(ui.dialog.open,true);
+});
+
+test('resize handle respects viewport bounds and minimum usable dimensions',()=>{
+  const ui=setup();ui.key('q',{altKey:true});
+  ui.pointer(ui.resizeHandle,'pointerdown',900,700);ui.pointer(ui.resizeHandle,'pointermove',20000,20000);
+  let rect=assertWindowFits(ui);assert.equal(rect.width,1000);assert.equal(rect.height,744);
+  ui.pointer(ui.resizeHandle,'pointerup',20000,20000);
+  ui.pointer(ui.resizeHandle,'pointerdown',900,700);ui.pointer(ui.resizeHandle,'pointermove',-20000,-20000);
+  rect=assertWindowFits(ui);assert.equal(rect.width,300);assert.equal(rect.height,300);
+  ui.pointer(ui.resizeHandle,'pointerup',-20000,-20000);assert.equal(ui.changes(),0);
+});
+
+test('keyboard resizing changes only window dimensions and supports larger Shift steps',()=>{
+  const ui=setup();ui.key('q',{altKey:true});const before=windowRect(ui);
+  let prevented=false;
+  ui.resizeHandle.dispatchEvent({type:'keydown',key:'ArrowLeft',preventDefault(){prevented=true;}});
+  assert.equal(prevented,true);assert.equal(windowRect(ui).width,before.width-20);
+  ui.resizeHandle.dispatchEvent({type:'keydown',key:'ArrowUp',shiftKey:true,preventDefault(){}});
+  assert.equal(windowRect(ui).height,before.height-50);
+  assertWindowFits(ui);assert.equal(ui.changes(),0);assert.equal(ui.nextCalls(),0);
+});
+
+test('window position and size resume only for the same account and round in this tab',()=>{
+  const ui=setup();ui.key('q',{altKey:true});
+  ui.pointer(ui.dragHandle,'pointerdown',600,200);ui.pointer(ui.dragHandle,'pointermove',400,100);ui.pointer(ui.dragHandle,'pointerup',400,100);
+  ui.pointer(ui.resizeHandle,'pointerdown',900,700);ui.pointer(ui.resizeHandle,'pointermove',800,600);ui.pointer(ui.resizeHandle,'pointerup',800,600);
+  const changed=windowRect(ui),next=setup({sessionValues:ui.sessionValues});assert.deepEqual(windowRect(next),changed);
+  for(const options of [{user:'2'},{scope:'2'}]) {
+    const other=setup({sessionValues:ui.sessionValues,...options});other.key('q',{altKey:true});
+    assert.notDeepEqual(windowRect(other),changed);assertWindowFits(other);
+  }
+  assert.equal(ui.writes.length,0);assert.equal([...ui.sessionValues.keys()].filter(key=>key.endsWith(':window')).length,1);
+});
+
+test('reset returns the window to the default lower right without changing quick mode or codes',()=>{
+  const ui=setup();ui.key('q',{altKey:true});const initial=windowRect(ui);
+  ui.key('s');ui.key('Enter');
+  ui.pointer(ui.dragHandle,'pointerdown',600,200);ui.pointer(ui.dragHandle,'pointermove',100,100);ui.pointer(ui.dragHandle,'pointerup',100,100);
+  assert.notDeepEqual(windowRect(ui),initial);ui.resetWindowButton.click();
+  assert.deepEqual(windowRect(ui),initial);assert.equal(ui.primary.value,'2');assert.equal(ui.changes(),1);
+  assert.equal(ui.dialog.open,true);assert.equal(ui.sessionValues.get(ui.modeKey),'on');
+});
+
+test('shrinking the browser clamps the whole window and very small viewports retain bounded controls',()=>{
+  const ui=setup();ui.key('q',{altKey:true});
+  ui.window.innerWidth=320;ui.window.innerHeight=240;ui.windowEvents.resize();
+  let rect=assertWindowFits(ui);assert.equal(rect.width,296);assert.equal(rect.height,216);
+  ui.window.innerWidth=180;ui.window.innerHeight=120;ui.windowEvents.resize();
+  rect=assertWindowFits(ui);assert.equal(rect.width,156);assert.equal(rect.height,96);
+  assert.equal(ui.dialog.open,true);assert.equal(ui.closeButton.disabled,false);assert.equal(ui.resetWindowButton.disabled,false);
+});
+
+test('corrupt stored dimensions and blocked storage cannot prevent positioning, resizing or selection',()=>{
+  const sessionValues=new Map([['ai-coding-platform:quick-coding:v1:1:1:window','{"left":"bad","top":4,"width":null,"height":1}']]);
+  const restored=setup({sessionValues});restored.key('q',{altKey:true});assertWindowFits(restored);
+  const ui=setup({sessionFails:true});ui.key('q',{altKey:true});
+  assert.doesNotThrow(()=>{ui.pointer(ui.dragHandle,'pointerdown',600,200);ui.pointer(ui.dragHandle,'pointermove',400,100);ui.pointer(ui.dragHandle,'pointerup',400,100);ui.resetWindowButton.click();});
+  assertWindowFits(ui);ui.key('Enter');assert.equal(ui.primary.value,'1');assert.equal(ui.dialog.open,true);
+});
+
+test('long code labels remain complete and long definitions can be read without expanding every list entry',()=>{
+  const label='完整代码名称'.repeat(30),definition='定义与适用条件。'.repeat(40);
+  const ui=setup({labels:[label],definitions:[definition]});ui.key('q',{altKey:true});
+  assert.equal(ui.list.children[0].children[0].textContent,label);
+  assert.equal(ui.list.children[0].children[1].textContent,definition.slice(0,180)+'…');
+  assert.equal(ui.fullDefinition.hidden,false);assert.equal(ui.fullDefinition.open,false);
+  assert.equal(ui.definitionText.textContent,definition);ui.fullDefinition.open=true;
+  ui.key('s');assert.equal(ui.fullDefinition.hidden,true);assert.equal(ui.fullDefinition.open,false);
+  ui.key('w');assert.equal(ui.fullDefinition.hidden,false);assert.equal(ui.definitionText.textContent,definition);
+  assert.equal(ui.fullDefinition.open,false);assert.equal(ui.changes(),0);
+});
+
+test('moving the highlight after selecting cancels next confirmation until the new code is selected',async()=>{
+  const ui=setup();ui.key('q',{altKey:true});ui.key('Enter');
+  assert.equal(ui.confirmationStatus.hidden,false);assert.equal(ui.dialog.open,true);
+  ui.key('s');assert.equal(ui.confirmationStatus.hidden,true);ui.key('Enter');
+  assert.equal(ui.primary.value,'2');assert.equal(ui.nextCalls(),0);assert.equal(ui.confirmationStatus.hidden,false);
+  ui.key('Enter');await new Promise(setImmediate);assert.equal(ui.nextCalls(),1);
+});
+
+test('searching after selection cancels next confirmation and Enter in search only selects',async()=>{
+  const ui=setup();ui.key('q',{altKey:true});ui.key('Enter');ui.searchFor('定义 3');
+  assert.equal(ui.confirmationStatus.hidden,true);ui.key('Enter');assert.equal(ui.primary.value,'3');
+  assert.equal(ui.nextCalls(),0);assert.equal(ui.document.activeElement,ui.list);
+  ui.key('Enter');await new Promise(setImmediate);assert.equal(ui.nextCalls(),1);
+});
+
+test('switching between primary and secondary requires a fresh selection before next confirmation',async()=>{
+  const ui=setup();ui.key('q',{altKey:true});ui.key('Enter');ui.key('2');
+  assert.equal(ui.confirmationStatus.hidden,true);ui.key('Enter');
+  assert.equal(ui.secondary[1].checked,true);assert.equal(ui.nextCalls(),0);assert.equal(ui.primary.value,'1');
+  ui.key('1');assert.equal(ui.confirmationStatus.hidden,true);ui.key('Enter');assert.equal(ui.nextCalls(),0);
+  ui.key('Enter');await new Promise(setImmediate);assert.equal(ui.nextCalls(),1);
+});
+
+test('mouse re-selection keeps the window but cancels the armed next action even for the same code',async()=>{
+  const ui=setup();ui.key('q',{altKey:true});ui.key('Enter');ui.list.children[0].click();
+  assert.equal(ui.confirmationStatus.hidden,true);assert.equal(ui.dialog.open,true);assert.equal(ui.changes(),1);
+  ui.key('Enter');await new Promise(setImmediate);assert.equal(ui.nextCalls(),0);
+  ui.list.children[2].click();assert.equal(ui.primary.value,'3');assert.equal(ui.confirmationStatus.hidden,true);
+  ui.key('Enter');assert.equal(ui.nextCalls(),0);ui.key('Enter');await new Promise(setImmediate);
+  assert.equal(ui.nextCalls(),1);assert.equal(ui.sessionValues.get(ui.modeKey),'on');
+});
+
+test('changing or clearing form code controls cannot reuse an earlier confirmation',async()=>{
+  const ui=setup();ui.key('q',{altKey:true});ui.key('Enter');
+  ui.codeButtons[1].click();assert.equal(ui.confirmationStatus.hidden,true);ui.form.focus();ui.key('Enter');
+  assert.equal(ui.primary.value,'2');assert.equal(ui.nextCalls(),0);
+  ui.primary.value='';ui.primary.dispatchEvent({type:'change'});assert.equal(ui.confirmationStatus.hidden,true);
+  ui.form.focus();ui.key('Enter');await new Promise(setImmediate);assert.equal(ui.nextCalls(),0);
+});
+
+test('collapsing and reopening clears confirmation without exiting quick mode',async()=>{
+  const ui=setup();ui.key('q',{altKey:true});ui.key('Enter');ui.closeButton.click();
+  assert.equal(ui.confirmationStatus.hidden,true);assert.equal(ui.sessionValues.get(ui.modeKey),'on');
+  ui.document.body.focus();ui.key('Enter');assert.equal(ui.primary.value,'1');assert.equal(ui.nextCalls(),0);
+  assert.equal(ui.dialog.open,true);ui.key('Enter');await new Promise(setImmediate);assert.equal(ui.nextCalls(),1);
+});
+
+test('save and next custom shortcuts remain available with a persistent chooser and do not select highlighted alternatives',()=>{
+  const stored=JSON.stringify({...defaults,save:'Ctrl+Enter',next:'Ctrl+Shift+Enter'}),ui=setup({stored});
+  ui.key('q',{altKey:true});ui.key('Enter');ui.key('s');
+  ui.key('Enter',{ctrlKey:true});assert.equal(ui.clicks(),1);assert.equal(ui.primary.value,'1');
+  ui.key('Enter',{ctrlKey:true,shiftKey:true});assert.equal(ui.nextClicks(),1);assert.equal(ui.primary.value,'1');
+  assert.equal(ui.changes(),1);assert.equal(ui.dialog.open,true);
 });

@@ -3,6 +3,17 @@ from django import forms
 from django.contrib.auth import get_user_model
 from django.contrib.auth.password_validation import validate_password
 from .models import Project, Code, Membership, Codebook
+from .source_information import DISPLAY_FIELDS, suggested_display_mapping
+
+
+class SourceDisplayForm(forms.Form):
+    def __init__(self, *args, headers, mapping=None, **kwargs):
+        super().__init__(*args, **kwargs)
+        initial = suggested_display_mapping(headers) if mapping is None else mapping
+        for name, label in DISPLAY_FIELDS:
+            self.fields[name] = forms.ChoiceField(label=label, required=False,
+                choices=[('', '不显示 / 无对应列')] + [(header, header) for header in headers],
+                initial=initial.get(name, ''))
 
 
 class ProjectForm(forms.ModelForm):

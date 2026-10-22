@@ -36,6 +36,8 @@ class CodebookMappingForm(forms.Form):
 
 
 class ExportOptionsForm(forms.Form):
+    layout = forms.ChoiceField(label='导出样式', required=False,
+        choices=[('source', '原材料＋平台结果（推荐）'), ('platform', '完整平台数据')])
     format = forms.ChoiceField(label='文件格式')
     filename = forms.CharField(label='文件名称（不用填写扩展名）', max_length=100)
     encoding = forms.ChoiceField(label='CSV / TSV字符编码', choices=[('utf-8-sig', 'UTF-8（推荐，Excel可直接打开）'),
@@ -46,7 +48,23 @@ class ExportOptionsForm(forms.Form):
     def __init__(self, *args, table, is_book=False, **kwargs):
         super().__init__(*args, **kwargs)
         self.table = table
-        self.fields['format'].choices = FORMATS + ([('docx', 'Word文档（.docx，编码本）')] if is_book else [])
+        self.supports_source = not is_book and {'document_id', 'record_position', 'unit_text'}.issubset(table.headers)
+        if not self.supports_source:
+            del self.fields['layout']
+        else:
+            self.fields['layout'].widget.attrs['data-export-layout'] = ''
+        self.fields['format'].widget.attrs['data-export-format'] = ''
+        self.fields['format'].choices = ([('source', '沿用原材料格式（推荐）')] if self.supports_source else []) + FORMATS + ([('docx', 'Word文档（.docx，编码本）')] if is_book else [])
+        if self.is_bound and self.supports_source and self.data.get('layout') == 'source':
+            data = self.data.copy()
+            if hasattr(data, 'setlist'):
+                data.setlist('fields', table.headers)
+            else:
+                data['fields'] = table.headers
+            for key in list(data):
+                if key.startswith(('label_', 'order_')):
+                    data.pop(key)
+            self.data = data
         self.fields['fields'].choices = [(h, BASE_LABELS.get(h, '原始附加字段') + ' · ' + h) for h in table.headers]
         for index, key in enumerate(table.headers):
             meaning = BASE_LABELS.get(key, key)
@@ -57,6 +75,11 @@ class ExportOptionsForm(forms.Form):
 
     def clean(self):
         data = super().clean()
+        if self.supports_source and data.get('layout') == 'source':
+            self.selection = [(index + 1, key, key) for index, key in enumerate(self.table.headers)]
+            return data
+        if data.get('format') == 'source':
+            self.add_error('format', '完整平台数据请选择Excel、CSV等具体格式。')
         selected = set(data.get('fields', []))
         if len(selected) > 300:
             self.add_error('fields', '一次最多导出300列，请减少选择的字段。')

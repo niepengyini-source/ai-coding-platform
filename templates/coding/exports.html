@@ -76,13 +76,14 @@
     <h2>{% if row_form %}3{% else %}2{% endif %}. 选择格式</h2>
     {% if not row_form %}<p>当前内容有 <strong>{{ row_count }}</strong> 行。{% if not row_count %}尚无数据，可先导出字段模板。{% endif %}</p>{% endif %}
     {{ export_form.non_field_errors }}
+    {% if export_form.layout %}<p>{{ export_form.layout.label_tag }}{{ export_form.layout }}{{ export_form.layout.errors }}</p><p class="hint" data-source-export-hint>原始列保留，平台结果追加在右侧；拆分后每个片段一行。多个来源分别导出并打包下载。</p>{% endif %}
     <div class="two-columns">
       <div><p>{{ export_form.format.label_tag }}{{ export_form.format }}{{ export_form.format.errors }}</p><p>{{ export_form.filename.label_tag }}{{ export_form.filename }}{{ export_form.filename.errors }}</p></div>
       <div><p>{{ export_form.encoding.label_tag }}{{ export_form.encoding }}{{ export_form.encoding.errors }}</p><p>{{ export_form.delimiter.label_tag }}{{ export_form.delimiter }}{{ export_form.delimiter.errors }}</p></div>
     </div>
     <p class="hint">{% if row_form %}语句、编码和原始附加信息默认一并导出。{% endif %}CSV设置仅用于CSV / TSV。</p>
   </section>
-  <details class="card" {% if export_form.errors %}open{% endif %}>
+  <details class="card" data-export-fields {% if export_form.errors %}open{% endif %}>
     <summary>自定义字段（不改也可以直接导出）</summary>
     <p class="hint">默认包含全部字段。可取消不需要的列，或修改列名与顺序。顺序数字不能重复。</p>
     {{ field_errors }}
@@ -93,5 +94,6 @@
 </form>
 {% if not row_form %}<details class="card"><summary>查看数据示例（前3行，尚未应用自定义字段）</summary><div class="table-wrap"><table><thead><tr>{% for h in headers %}<th>{{ h }}</th>{% endfor %}</tr></thead><tbody>{% for row in sample %}<tr>{% for cell in row %}<td>{{ cell|truncatechars:120 }}</td>{% endfor %}</tr>{% empty %}<tr><td>暂时没有数据</td></tr>{% endfor %}</tbody></table></div></details>{% endif %}
 <script src="{% static 'export_rows.js' %}" defer></script>
+{% if export_form.layout %}<script src="{% static 'source_export.js' %}" defer></script>{% endif %}
 {% endif %}
 {% endblock %}

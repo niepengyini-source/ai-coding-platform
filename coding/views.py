@@ -8,14 +8,14 @@ from django.contrib.auth.views import PasswordChangeView
 from django.core.exceptions import PermissionDenied
 from django.core.paginator import Paginator
 from django.db import transaction, OperationalError
-from django.db.models import F
+from django.db.models import F, OuterRef, Subquery
 from django.http import JsonResponse, HttpResponse, Http404
 from django.shortcuts import get_object_or_404, redirect, render
 from django.urls import reverse
 from django.utils import timezone
 from django.views.decorators.http import require_POST
 from .models import *
-from .forms import ProjectForm, MemberForm, BookForm, CodeForm
+from .forms import ProjectForm, MemberForm, BookForm, CodeForm, SourceDisplayForm
 from .importing import parse_upload, material_sheets, suggested_columns
 from .services import (Conflict, audit, annotation_data, import_records, clone_book, create_round,
                        save_assignment, save_decision, export_annotations, export_final, export_disagreements)
@@ -23,9 +23,11 @@ from .reliability import report_for
 from .reviewing import disagreement_rows
 from .account_forms import InvitationForm, JoinReviewForm
 from .group_services import mark_approved
-from .workflow import visible_rounds, current_coding_round, coding_assignments, next_coding_url
+from .workflow import visible_rounds, current_coding_round, coding_assignments, next_coding_url, history_permissions
 from .splitting import split_personal, suggest_split, split_restore_options
 from .context import context_page
+from .source_information import (attach_source_information, available_headers, display_mapping,
+                                 mapping_token)
 from .book_updates import begin_update, apply_book_update
 
 
@@ -226,7 +228,12 @@ def materials(request, project_id):
                 try:
                     if text_col not in headers or (context_col and (context_col not in headers or context_col == text_col)):
                         raise ValueError('请选择有效且不同的文本列和上下文分组列。')
-                    imported = import_records(project, request.user, draft, rows, text_col, context_col, sheet)
+                    display_form = SourceDisplayForm(request.POST, headers=headers, prefix='source')
+                    if not display_form.is_valid():
+                        raise ValueError('显示字段包含无效列，请重新选择。')
+                    display_values = display_form.cleaned_data if any(key.startswith('source-') for key in request.POST) else None
+                    imported = import_records(project, request.user, draft, rows, text_col, context_col, sheet,
+                                              display_mapping=display_values)
                     counts = imported.import_counts
                     messages.success(request, f'材料已导入：新增 {counts["units"]} 个编码单元，跳过 {counts["skipped"]} 条完全重复记录。原有材料和编码保持不变。')
                     return redirect('units', project.id)
@@ -239,11 +246,52 @@ def materials(request, project_id):
             return render(request, 'coding/import_preview.html', {'project': project, 'role': role,
                 'draft': draft, 'headers': headers, 'preview': [[row.get(h, '')[:200] for h in headers] for row in rows[:5]],
                 'row_count': len(rows), 'default_text': default, 'default_context': context,
-                'sheet_names': sheets, 'sheet_name': sheet, 'error': preview_error})
+                'sheet_names': sheets, 'sheet_name': sheet, 'error': preview_error,
+                'display_form': SourceDisplayForm(request.POST if request.POST.get('draft_id') and
+                    request.POST.get('action') != 'preview' and any(key.startswith('source-') for key in request.POST)
+                    else None, headers=headers, prefix='source')})
         except (ValueError, TypeError, OperationalError) as exc:
             error = str(exc) if not isinstance(exc, OperationalError) else '数据库忙，请稍后重试；没有确认导入成功。'
+    samples = SourceRecord.objects.filter(document_id=OuterRef('pk')).order_by('position').values('metadata')[:1]
+    documents = list(project.documents.annotate(display_sample=Subquery(samples)))
+    for document in documents:
+        headers = [document.text_column, *(document.display_sample or {})]
+        document.display_form = SourceDisplayForm(headers=headers,
+            mapping=display_mapping(document, headers), prefix=f'source-{document.pk}')
+        document.mapping_token = mapping_token(document)
     return render(request, 'coding/materials.html', {'project': project, 'role': role, 'error': error,
-                                                  'documents': project.documents.all()})
+                                                  'documents': documents})
+
+
+@login_required
+@require_POST
+def source_display(request, project_id, document_id):
+    project, _ = access(request, project_id, ['owner', 'reviewer'])
+    document = get_object_or_404(SourceDocument, pk=document_id, project=project)
+    selected_id = request.POST.get('assignment_id', '').strip()
+    assignment = Assignment.objects.filter(pk=selected_id if len(selected_id) <= 18 and
+        selected_id.isascii() and selected_id.isdecimal() else None,
+        coder=request.user, superseded=False, unit__record__document=document).first()
+    destination = (reverse('workbench', args=[assignment.round_id]) + f'?a={assignment.pk}#source-information-settings'
+                   if assignment else reverse('materials', args=[project.pk]))
+    try:
+        headers, _ = parse_upload(document.name, bytes(document.raw), sheet_name=document.sheet_name or None)
+        form = SourceDisplayForm(request.POST, headers=headers, prefix=f'source-{document.pk}')
+        if not form.is_valid():
+            raise ValueError('显示字段包含无效列，请重新选择。')
+        with transaction.atomic():
+            document = SourceDocument.objects.select_for_update().get(pk=document.pk)
+            if request.POST.get('mapping_token') != mapping_token(document):
+                raise Conflict('显示字段已被修改，请刷新核对后重试。')
+            before = document.display_mapping
+            document.display_mapping = form.cleaned_data
+            document.save(update_fields=['display_mapping'])
+            audit(project, request.user, 'source.display_mapping', document,
+                  before=before, after=document.display_mapping)
+        messages.success(request, '显示字段已保存，原材料与编码保持不变。')
+    except (ValueError, OperationalError) as error:
+        messages.error(request, str(error) if not isinstance(error, OperationalError) else '数据库忙，请稍后重试。')
+    return redirect(destination)
 
 
 @login_required
@@ -496,15 +544,72 @@ def workbench(request, round_id):
         before, more_before, before_cursor = context_page(rec, 'before', size=2)
         after, more_after, after_cursor = context_page(rec, 'after', size=2)
         context = before + [rec] + after
+        attach_source_information(context, rec.document)
         context_options = {'context_before': before, 'context_after': after,
             'more_before': more_before, 'more_after': more_after,
             'before_cursor': before_cursor, 'after_cursor': after_cursor}
+        if role in ('owner', 'reviewer'):
+            headers = available_headers(rec)
+            context_options.update(source_display_form=SourceDisplayForm(headers=headers,
+                mapping=display_mapping(rec.document, headers), prefix=f'source-{rec.document_id}'),
+                source_mapping_token=mapping_token(rec.document))
     codes = list(r.book.codes.all())
     restore_options = split_restore_options(a, request.user)
+    submission_options = {'submitted_tasks': []}
+    if role in ('owner', 'reviewer') and r.state == 'active':
+        submitted = r.assignments.filter(status='submitted', superseded=False)
+        available = submitted.exists()
+        coders = list(r.assignments.filter(superseded=False).values('coder_id', 'coder__username').distinct()
+                      .order_by('coder__username', 'coder_id'))
+        unit_filter = request.GET.get('submitted_unit', '').strip()
+        coder_filter = request.GET.get('submitted_coder', '').strip()
+        filter_error = ''
+        if unit_filter:
+            if len(unit_filter) > 18 or not unit_filter.isascii() or not unit_filter.isdecimal() or int(unit_filter) < 1:
+                filter_error = '请输入有效的系统单元编号，例如641；不是材料顺序号。'
+            else:
+                submitted = submitted.filter(unit_id=int(unit_filter))
+        if coder_filter:
+            if (len(coder_filter) > 18 or not coder_filter.isascii() or not coder_filter.isdecimal()
+                    or int(coder_filter) not in {row['coder_id'] for row in coders}):
+                filter_error = '请选择本轮有任务的编码员。'
+            else:
+                submitted = submitted.filter(coder_id=int(coder_filter))
+        if filter_error:
+            submitted = submitted.none()
+        submitted_page = Paginator(submitted.order_by('unit__record__document_id', 'unit__record__position',
+            'unit__start', 'coder_id', 'id').values('id', 'coder__username', 'unit_id', 'revision'), 50).get_page(
+                request.GET.get('submitted_page'))
+        params = request.GET.copy()
+        if a:
+            params['a'] = str(a.pk)
+        base_params = params.copy()
+        for name in ('submitted_page', 'submitted_unit', 'submitted_coder'):
+            base_params.pop(name, None)
+        def submission_page_url(number):
+            values = params.copy()
+            values['submitted_page'] = number
+            return '?' + values.urlencode() + '#submission-controls'
+        submission_options = {
+            'show_submission_controls': available or any(name.startswith('submitted_') for name in request.GET),
+            'submission_filters_active': any(name in request.GET for name in ('submitted_page', 'submitted_unit', 'submitted_coder')),
+            'submitted_tasks': submitted_page, 'submitted_coders': coders,
+            'submitted_unit_filter': unit_filter, 'submitted_coder_filter': coder_filter,
+            'submission_filter_error': filter_error,
+            'submission_context_fields': [(key, value) for key, values in base_params.lists() for value in values],
+            'submission_return_fields': [('page', task_page.number), ('submitted_page', submitted_page.number)]
+                + ([('a', a.pk)] if a else [])
+                + ([('submitted_unit', unit_filter)] if unit_filter else [])
+                + ([('submitted_coder', coder_filter)] if coder_filter else []),
+            'submission_reset_url': '?' + base_params.urlencode() + '#submission-controls',
+            'submission_previous_url': submission_page_url(submitted_page.previous_page_number()) if submitted_page.has_previous() else '',
+            'submission_next_url': submission_page_url(submitted_page.next_page_number()) if submitted_page.has_next() else '',
+        }
     return render(request, 'coding/workbench.html', {'project': r.project, 'role': role, 'round': r,
         'assignment': a, 'annotation': annotation_data(a) if a else {}, 'codes': codes, 'context': context,
         **context_options,
         'annotation_locked': role == 'viewer' or r.state != 'active' or (a is not None and a.status == 'submitted'),
+        'editing_flags': history_permissions(a, request.user, role) if a else {},
         'next_url': next_coding_url(a) if a else '',
         'skip_url': skip_url,
         'can_split': a is not None and r.state == 'active' and role != 'viewer',
@@ -516,8 +621,7 @@ def workbench(request, round_id):
         'next_draft': mine.filter(status='draft').exclude(pk=a.pk).first() if a else None,
         'mine_total': mine.count(), 'mine_done': mine.filter(status='submitted').count(),
         'can_review': r.state != 'active' or r.kind == 'training',
-        'submitted_tasks': list(r.assignments.filter(status='submitted', superseded=False).values('id', 'coder__username', 'unit_id', 'revision')[:50])
-                           if role in ('owner', 'reviewer') and r.state == 'active' else [],
+        **submission_options,
         'total': r.assignments.filter(superseded=False).count(),
         'total_done': r.assignments.filter(status='submitted', superseded=False).count()})
 
@@ -526,7 +630,7 @@ def workbench(request, round_id):
 def assignment_context(request, assignment_id):
     if request.method != 'GET':
         return HttpResponse(status=405)
-    a = get_object_or_404(Assignment.objects.select_related('unit__record', 'round'),
+    a = get_object_or_404(Assignment.objects.select_related('unit__record__document', 'round'),
                          pk=assignment_id, coder=request.user, superseded=False)
     access(request, a.round.project_id)
     try:
@@ -534,8 +638,10 @@ def assignment_context(request, assignment_id):
         if not raw_cursor.isascii() or not raw_cursor.isdigit() or len(raw_cursor) > 18:
             raise ValueError('上下文位置不正确，请刷新后重试。')
         items, more, cursor = context_page(a.unit.record, request.GET.get('direction'), int(raw_cursor))
+        attach_source_information(items, a.unit.record.document)
         response = JsonResponse({'records': [{'id': rec.pk, 'position': rec.position, 'text': rec.text,
-            'context_key': rec.context_key} for rec in items], 'has_more': more, 'cursor': cursor})
+            'context_key': rec.context_key, 'source_information': rec.source_information} for rec in items],
+            'has_more': more, 'cursor': cursor})
         response['Cache-Control'] = 'no-store'
         return response
     except ValueError as error:
@@ -664,6 +770,23 @@ def assignment_reopen(request, assignment_id):
         messages.success(request, '已退回给原编码员；没有修改其答案。')
     except (ValueError, OperationalError) as error:
         messages.error(request, str(error))
+    return_params = request.GET.copy()
+    return_params.clear()
+    for name in ('a', 'page', 'submitted_page', 'submitted_unit', 'submitted_coder'):
+        value = request.POST.get('return_' + name, '').strip()
+        if value and len(value) <= 18 and value.isascii() and value.isdecimal() and int(value) > 0:
+            return_params[name] = str(int(value))
+    try:
+        for name, criteria in (
+                ('a', {'pk': return_params.get('a'), 'coder': request.user, 'superseded': False}),
+                ('submitted_unit', {'unit_id': return_params.get('submitted_unit')}),
+                ('submitted_coder', {'coder_id': return_params.get('submitted_coder'), 'superseded': False})):
+            if name in return_params and not Assignment.objects.filter(round_id=a.round_id, **criteria).exists():
+                return_params.pop(name)
+    except OperationalError:
+        return_params.clear()
+    if return_params:
+        return redirect(reverse('workbench', args=[a.round_id]) + '?' + return_params.urlencode() + '#submission-controls')
     return redirect('workbench', a.round_id)
 
 

@@ -14,13 +14,14 @@ function setup(fetchImplementation, initial = {}, mode = 'annotation', nextUrl =
   const buttons = [{disabled:false,dataset:{action:'submit_next'}}, {disabled:false,dataset:{action:'save'}}];
   const codeButtons = [{disabled:false}];
   const legacyNotice = {hidden:true,textContent:''};
+  const reviewMarker = {textContent:'',dataset:{}};
   const status = {textContent:'', className:''};
   const navigations = [];
   const confirmations = [];
   let confirmAnswer = true;
   const form = {dataset:{endpoint:'/api/test/',mode,locked:'false',nextUrl,...formState},
     addEventListener: (name, fn) => listeners[name] = fn,
-    querySelector: selector => selector === '.save-status' ? status : selector === '[data-legacy-secondary]' ? legacyNotice : fields[selector.match(/name=([^\]]+)/)?.[1]],
+    querySelector: selector => selector === '.save-status' ? status : selector === '[data-legacy-secondary]' ? legacyNotice : selector === '[data-review-marker]' ? reviewMarker : fields[selector.match(/name=([^\]]+)/)?.[1]],
     querySelectorAll: selector => {
       if (selector === '[name=secondary]:checked') return secondary.filter(x => x.checked);
       if (selector === '[name=secondary]') return secondary;
@@ -74,7 +75,7 @@ function setup(fetchImplementation, initial = {}, mode = 'annotation', nextUrl =
       send(submitter,overrides={}) {const event=submitEvent(other,submitter,overrides);if(!event.defaultPrevented)onSubmit(event);return event;}};
     return other;
   };
-  return {fields,secondary,status,buttons,codeButtons,navigations,form,legacyNotice,confirmations,link,leavingForm,submitEvent,
+  return {fields,secondary,status,buttons,codeButtons,navigations,form,legacyNotice,reviewMarker,confirmations,link,leavingForm,submitEvent,
     preview: enabled => {form.dataset.splitPreview=String(enabled);windowListeners['platform:split-preview-change']();},
     confirm:answer=>{confirmAnswer=answer;},
     choosePrimary: value => {fields.primary.value=value;fields.primary.dispatchEvent({type:'change'});},
@@ -138,6 +139,17 @@ test('empty coding starts disabled, selecting enables and clearing disables both
   ui.edit('尚未选代码的备注');ui.autoSave();await flush();assert.equal(calls,1);
   assert.equal(ui.buttons.every(button=>button.disabled),true);
 });
+
+test('clearing a saved primary also clears its secondary and autosaves an empty draft without erasing notes',async()=>{
+  const sent=[];
+  const ui=setup(async(_url,options)=>{const data=JSON.parse(options.body);sent.push(data);return response({revision:2,status:'draft'});},
+    {primary:1,secondary:[2],note:'保留判断依据',revision:1});
+  ui.choosePrimary('');ui.autoSave();await flush();
+  assert.equal(sent.length,1);assert.equal(sent[0].action,'save');
+  assert.equal(sent[0].primary,null);assert.deepEqual(sent[0].secondary,[]);
+  assert.equal(sent[0].note,'保留判断依据');assert.equal(ui.secondary.some(input=>input.checked),false);
+  assert.equal(ui.buttons.every(button=>button.disabled),true);
+});
 test('no-code and uncertainty remain valid judgments; uncertainty requires a reason',async()=>{
   const ui=setup(async()=>response({revision:1,status:'draft'}),{primary:null});
   ui.chooseNoCode(true);assert.equal(ui.buttons.every(button=>!button.disabled),true);
@@ -146,6 +158,34 @@ test('no-code and uncertainty remain valid judgments; uncertainty requires a rea
   assert.equal(ui.buttons.every(button=>button.disabled),true);
   ui.edit('这里的含义还不能确定');assert.equal(ui.buttons.every(button=>!button.disabled),true);
   ui.edit('  ');assert.equal(ui.buttons.every(button=>button.disabled),true);
+});
+test('review label distinguishes untouched and note-only drafts from actual judgments',()=>{
+  const ui=setup(async()=>response({revision:1,status:'draft'}),{primary:null,note:''});
+  assert.equal(ui.reviewMarker.textContent,'未判断');
+  ui.edit('先记下上下文');assert.equal(ui.reviewMarker.textContent,'未判断');
+  ui.choosePrimary('1');assert.equal(ui.reviewMarker.textContent,'已确认');
+  ui.choosePrimary('');assert.equal(ui.reviewMarker.textContent,'未判断');
+  ui.chooseNoCode(true);assert.equal(ui.reviewMarker.textContent,'已确认');
+  ui.chooseNoCode(false);assert.equal(ui.reviewMarker.textContent,'未判断');
+});
+test('review label preserves uncertain boolean meaning and still requires a reason',async()=>{
+  let calls=0;const ui=setup(async()=>{calls++;return response({revision:1,status:'draft'});},{primary:null});
+  ui.fields.uncertain.checked=true;ui.fields.uncertain.dispatchEvent({type:'change'});
+  assert.equal(ui.reviewMarker.textContent,'需复核');assert.equal(ui.reviewMarker.dataset.reviewState,'review');
+  assert.equal(ui.buttons.every(button=>button.disabled),true);
+  ui.edit('待核对这句的指代');assert.equal(ui.buttons.every(button=>!button.disabled),true);
+  ui.click('save');await flush();assert.equal(calls,1);assert.equal(ui.fields.uncertain.checked,true);
+  assert.equal(ui.reviewMarker.textContent,'需复核');
+  ui.fields.uncertain.checked=false;ui.fields.uncertain.dispatchEvent({type:'change'});
+  assert.equal(ui.reviewMarker.textContent,'未判断');
+  ui.choosePrimary('1');assert.equal(ui.reviewMarker.textContent,'已确认');
+});
+test('readonly and submitted records keep their own review marker independently of save status',async()=>{
+  const readonly=setup(async()=>response({revision:1,status:'draft'}),{primary:1,uncertain:true,revision:1},'annotation','',{locked:'true'});
+  assert.equal(readonly.reviewMarker.textContent,'需复核');assert.equal(readonly.fields.primary.disabled,true);
+  const submitted=setup(async()=>response({revision:2,status:'submitted'}),{primary:1,uncertain:false,revision:1});
+  submitted.click('submit');await flush();assert.match(submitted.status.textContent,/已提交/);
+  assert.equal(submitted.reviewMarker.textContent,'已确认');assert.equal(submitted.fields.uncertain.checked,false);
 });
 test('valid manual buttons recover after network or validation failure but not a conflict',async()=>{
   for(const code of [400,503]) {

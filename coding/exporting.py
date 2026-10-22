@@ -147,7 +147,7 @@ def book_table(book):
 
 def xlsx_bytes(headers, rows):
     from openpyxl import Workbook
-    from openpyxl.styles import Font, PatternFill, Alignment
+    from openpyxl.styles import Font, Alignment
     from openpyxl.cell import WriteOnlyCell
     from openpyxl.utils import get_column_letter
     if any(isinstance(value, str) and len(value) > 32767 for row in rows for value in row):
@@ -162,8 +162,7 @@ def xlsx_bytes(headers, rows):
     for header in headers:
         cell = WriteOnlyCell(sheet, value=header)
         cell.data_type = 's'
-        cell.font = Font(name='宋体', size=11, bold=True, color='FFFFFF')
-        cell.fill = PatternFill('solid', fgColor='34496B')
+        cell.font = Font(name='宋体', size=11, bold=True)
         cell.alignment = Alignment(wrap_text=True, vertical='center')
         heading.append(cell)
     sheet.append(heading)

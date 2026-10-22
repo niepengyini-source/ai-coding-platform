@@ -6,6 +6,7 @@ document.querySelectorAll('[data-export-rows]').forEach(form => {
   const summary = form.querySelector('[data-export-row-summary]');
   const limitPanel = form.querySelector('[data-export-row-limit]');
   const download = form.querySelector('[value="download"]');
+  const layout = form.querySelector('[data-export-layout]');
   if (!selection || !limit || !retained || !visible || !summary || !limitPanel || !download) return;
   const checkboxes = [...form.querySelectorAll('[name="selected"]')];
   const total = Number(form.dataset.rowCount) || 0;
@@ -25,13 +26,15 @@ document.querySelectorAll('[data-export-rows]').forEach(form => {
     limitPanel.hidden = !first;
     limit.disabled = !first;
     limit.required = first;
-    download.disabled = searchChanged || (first && (!validAmount || !total)) || (selected && !count);
+    const emptySource = layout?.value === 'source' && !total;
+    download.disabled = searchChanged || emptySource || (first && (!validAmount || !total)) || (selected && !count);
     if (searchChanged) summary.textContent = '筛选条件已变化，请点击“筛选并预览”。';
     else if (selected) summary.textContent = `将导出勾选的 ${count} 条记录（包含其他页）。`;
     else if (first) summary.textContent = validAmount ? `将导出筛选结果的前 ${Math.min(amount, total)} 条记录。` : '请填写要导出的条数（1—50000）。';
-    else summary.textContent = total ? `将导出全部 ${total} 条筛选结果。也可逐条勾选，支持跨页选择。` : '暂无符合条件的记录，可导出空表。';
+    else summary.textContent = total ? `将导出全部 ${total} 条筛选结果。也可逐条勾选，支持跨页选择。` : emptySource ? '暂无符合条件的记录，请调整筛选条件。' : '暂无符合条件的记录，可导出空表。';
   };
   selection.addEventListener('change', update);
+  layout?.addEventListener('change', update);
   limit.addEventListener('input', update);
   checkboxes.forEach(box => box.addEventListener('change', () => { selection.value = 'selected'; update(); }));
   form.querySelectorAll('[data-export-row-select]').forEach(button => button.addEventListener('click', () => {

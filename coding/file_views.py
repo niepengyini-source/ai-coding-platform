@@ -272,17 +272,21 @@ def exports(request, project_id):
                            row_advanced_open=bool(params.get('row_metadata_field') or params.get('row_metadata_value') or
                                                   params.get('row_status')))
         form = ExportOptionsForm(request.POST if request.method == 'POST' else None, table=table, is_book=bool(book),
-                initial={'format': 'xlsx', 'filename': f'{project.name}_{table.title or context["target"]}'[:100],
+                initial={'layout': 'source', 'format': 'source' if not book and {'document_id', 'record_position', 'unit_text'}.issubset(table.headers) else 'xlsx', 'filename': f'{project.name}_{table.title or context["target"]}'[:100],
                          'encoding': 'utf-8-sig', 'delimiter': ',', 'fields': table.headers})
+        context.update(export_form=form, field_rows=form.field_rows(), field_errors=form['fields'].errors,
+                       sample=table.rows[:3], headers=table.headers)
         if download and rows_valid and form.is_valid():
             values = form.cleaned_data
             fields, labels = [p[1] for p in form.selection], [p[2] for p in form.selection]
             from .exporting import ExportTable
             chosen = ExportTable(table.headers, selected_rows, table.title, table.policy)
+            if values.get('layout') == 'source':
+                from .source_exports import source_export_response
+                return source_export_response(project, chosen, values['format'], values['filename'],
+                                              encoding=values['encoding'], delimiter=values['delimiter'])
             return export_response(chosen, fields, labels, values['format'], values['filename'], encoding=values['encoding'],
                                    delimiter=values['delimiter'], is_book=bool(book))
-        context.update(export_form=form, field_rows=form.field_rows(), field_errors=form['fields'].errors,
-                       sample=table.rows[:3], headers=table.headers)
     except (ValueError, TypeError, OperationalError) as error:
         context['error'] = str(error) if not isinstance(error, OperationalError) else '数据库正在忙，请稍后重试导出。'
     return render(request, 'coding/exports.html', context)

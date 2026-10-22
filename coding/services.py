@@ -67,7 +67,7 @@ def validate_labels(book, data, submitting=True):
 
 
 @transaction.atomic
-def import_records(project, actor, draft, rows, text_column, context_column, sheet_name=''):
+def import_records(project, actor, draft, rows, text_column, context_column, sheet_name='', display_mapping=None):
     Project.objects.select_for_update().get(pk=project.pk)
     digest = hashlib.sha256(bytes(draft.raw)).hexdigest()
     previous = SourceDocument.objects.filter(project=project, sha256=digest, sheet_name__in=['', sheet_name]).first()
@@ -78,6 +78,7 @@ def import_records(project, actor, draft, rows, text_column, context_column, she
         return previous
     doc = SourceDocument.objects.create(project=project, name=Path(draft.filename).name,
         raw=draft.raw, sha256=digest, text_column=text_column, context_column=context_column, sheet_name=sheet_name,
+        display_mapping=display_mapping or {},
         import_note='保留原始文件字节和所有原始列；空白文本不生成编码单元；原文和全部原始信息完全相同时保留已有记录。')
     def identity(text, metadata):
         # File names and generated row positions are provenance, not source fields.
@@ -104,7 +105,8 @@ def import_records(project, actor, draft, rows, text_column, context_column, she
     Unit.objects.bulk_create([Unit(record=r, text=r.text, start=0, end=len(r.text)) for r in records if r.text.strip()])
     doc.import_counts = {'records': len(records), 'units': sum(bool(r.text.strip()) for r in records), 'skipped': skipped}
     audit(project, actor, 'import', doc, after={**doc.import_counts, 'text_column': text_column,
-                                              'context_column': context_column, 'sheet_name': sheet_name})
+                                              'context_column': context_column, 'sheet_name': sheet_name,
+                                              'display_mapping': doc.display_mapping})
     return doc
 
 

@@ -1,0 +1,4 @@
+{% if information.items or information.reference %}<div class="source-information" aria-label="原始发言信息">
+  {% if information.items %}<div class="source-information-meta">{% for item in information.items %}<span class="source-information-item"><span class="source-information-label">{{ item.label }}</span> {{ item.value }}</span>{% endfor %}</div>{% endif %}
+  {% if information.reference %}<details class="source-reference"><summary>{{ information.reference.label }}{% if information.reference.position %} · 原记录 {{ information.reference.position }}{% endif %}</summary><p>{{ information.reference.text }}</p></details>{% endif %}
+</div>{% endif %}

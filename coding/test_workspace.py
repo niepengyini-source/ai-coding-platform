@@ -80,7 +80,7 @@ class WorkspaceTests(TestCase):
         response = self.client.get('/projects/')
         self.assertContains(response, self.project.name)
         self.assertContains(response, self.group.name)
-        self.assertContains(response, '小组项目 · 编码员')
+        self.assertContains(response, '我加入的 · 编码员')
         self.assertContains(response, '创建时间', count=2)
         self.assertContains(response, '最后更新', count=2)
         self.assertContains(response, 'href="/projects/new/"', count=1)

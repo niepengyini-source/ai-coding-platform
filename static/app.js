@@ -42,6 +42,14 @@ if (form) {
   };
   const hasJudgment = () => !!(primary.value || form.querySelector('[name=no_code]').checked || form.querySelector('[name=uncertain]').checked)
     && (!form.querySelector('[name=uncertain]').checked || !!note.value.trim());
+  const refreshReviewMarker = () => {
+    const marker = form.querySelector('[data-review-marker]');
+    if (!marker) return;
+    const uncertain = form.querySelector('[name=uncertain]').checked;
+    const judged = !!(primary.value || form.querySelector('[name=no_code]').checked);
+    marker.textContent = uncertain ? '需复核' : judged ? '已确认' : '未判断';
+    marker.dataset.reviewState = uncertain ? 'review' : judged ? 'confirmed' : 'empty';
+  };
   const restoreControls = () => {
     form.dataset.busy = String(inFlight || advancing);
     form.dataset.savingDraft = String(inFlight && !advancing && pending?.payload.action === 'save');
@@ -57,6 +65,7 @@ if (form) {
       choiceHint.hidden = !needsChoice || stopped;
       choiceHint.textContent = form.querySelector('[name=uncertain]').checked ? '请补充不确定的原因' : '先选择代码';
     }
+    refreshReviewMarker();
     form.platformRefreshCodes?.();
   };
   form.platformRestoreControls = restoreControls;

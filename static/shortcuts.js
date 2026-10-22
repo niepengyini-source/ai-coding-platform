@@ -131,6 +131,12 @@
   const title = dialog?.querySelector('#shortcut-dialog-title');
   const count = dialog?.querySelector('[data-shortcut-count]');
   const empty = dialog?.querySelector('[data-shortcut-empty]');
+  const confirmationStatus = dialog?.querySelector('[data-shortcut-confirm-status]');
+  const fullDefinition = dialog?.querySelector('[data-shortcut-definition]');
+  const definitionText = dialog?.querySelector('[data-shortcut-definition-text]');
+  const dragHandle = dialog?.querySelector('[data-shortcut-drag]');
+  const resizeHandle = dialog?.querySelector('[data-shortcut-resize]');
+  const resetWindowButton = dialog?.querySelector('[data-shortcut-window-reset]');
   const note = form?.querySelector('[name=note]');
   const skipPrompt = form?.querySelector('[data-shortcut-skip-prompt]');
   const skipButtons = [...document.querySelectorAll('[data-shortcut-skip]')];
@@ -162,7 +168,48 @@
     definition:button.closest('[data-code-card]')?.querySelector('.code-choice-details .preserve')?.textContent.trim() || '', button,
   })) : primary ? [...primary.options].filter(option => option.value).map(option => ({id:option.value, label:option.textContent.trim(), definition:option.dataset.definition || ''})) : [];
   codes.forEach(code => code.search = `${code.label} ${code.definition}`.toLocaleLowerCase());
-  let opened = false, mode = 'primary', filtered = [], active = 0, previousFocus = null;
+  let opened = false, mode = 'primary', filtered = [], active = 0, previousFocus = null, confirmedChoice = '';
+  let windowRect = null, pointerWindow = null;
+  const windowKey = quickModeKey ? quickModeKey + ':window' : '';
+  try {
+    const savedWindow = windowKey && JSON.parse(sessionStorage.getItem(windowKey));
+    if (savedWindow && ['left', 'top', 'width', 'height'].every(key => Number.isFinite(savedWindow[key]))) windowRect = savedWindow;
+  } catch (_) { /* Window positioning remains usable without session storage. */ }
+  function viewport() {
+    return {width:window.innerWidth || 1024, height:window.innerHeight || 768};
+  }
+  function fitWindow(reset = false) {
+    if (!dialog?.style || !opened) return;
+    const size = viewport(), padding = Math.min(12, size.width / 4, size.height / 4);
+    const maxWidth = Math.max(1, size.width - padding * 2), maxHeight = Math.max(1, size.height - padding * 2);
+    const rect = !reset && windowRect ? windowRect : {
+      width:Math.min(440, maxWidth), height:Math.min(600, size.height * .75, maxHeight),
+      left:Math.max(padding, size.width - 464), top:Math.max(padding, size.height - Math.min(600, size.height * .75) - 24),
+    };
+    windowRect = {
+      width:Math.max(Math.min(300, maxWidth), Math.min(maxWidth, rect.width)),
+      height:Math.max(Math.min(300, maxHeight), Math.min(maxHeight, rect.height)),
+      left:rect.left, top:rect.top,
+    };
+    windowRect.left = Math.max(padding, Math.min(size.width - windowRect.width - padding, windowRect.left));
+    windowRect.top = Math.max(padding, Math.min(size.height - windowRect.height - padding, windowRect.top));
+    Object.assign(dialog.style, {left:windowRect.left + 'px', top:windowRect.top + 'px', width:windowRect.width + 'px',
+      height:windowRect.height + 'px', right:'auto', bottom:'auto'});
+  }
+  function rememberWindow() {
+    try { if (windowKey) sessionStorage.setItem(windowKey, JSON.stringify(windowRect)); } catch (_) { /* Optional layout preference. */ }
+  }
+  function beginWindowPointer(event, resizing) {
+    if (!opened || event.button !== 0 || !resizing && event.target?.closest?.('button, input, a, summary')) return;
+    event.preventDefault(); fitWindow();
+    pointerWindow = {id:event.pointerId, x:event.clientX, y:event.clientY, rect:{...windowRect}, resizing};
+    event.currentTarget?.setPointerCapture?.(event.pointerId);
+  }
+  function choiceSignature() { return `${mode}:${filtered[active]?.id || ''}:${primary?.value || ''}:${secondary.find(input => input.checked)?.value || ''}`; }
+  function clearConfirmation() {
+    confirmedChoice = '';
+    if (confirmationStatus) confirmationStatus.hidden = true;
+  }
   function canEdit() {
     return !!primary && !primary.disabled && form.dataset.locked !== 'true' && form.dataset.splitting !== 'true' && form.dataset.splitPreview !== 'true'
       && (form.dataset.busy !== 'true' || form.dataset.savingDraft === 'true');
@@ -176,6 +223,7 @@
   }
   function close() {
     if (!opened) return;
+    clearConfirmation(); pointerWindow = null;
     opened = false;
     if (dialog.open) dialog.close();
     dialog.hidden = true; search.setAttribute('aria-expanded', 'false'); search.removeAttribute('aria-activedescendant'); list.removeAttribute('aria-activedescendant');
@@ -229,31 +277,52 @@
     close(); skipPrompt.hidden = false; note?.classList.toggle('shortcut-skip-attention', true); note?.focus();
   }
   function markActive(index) {
+    clearConfirmation();
     active = Math.max(0, Math.min(index, filtered.length - 1));
     [...list.children].forEach((el, number) => el.setAttribute('aria-selected', String(number === active)));
     const chosen = list.children[active];
     if (chosen) { search.setAttribute('aria-activedescendant', chosen.id); list.setAttribute('aria-activedescendant', chosen.id); chosen.scrollIntoView?.({block:'nearest'}); }
     else { search.removeAttribute('aria-activedescendant'); list.removeAttribute('aria-activedescendant'); }
+    if (fullDefinition && definitionText) {
+      const definition = filtered[active]?.definition || '';
+      if (definitionText.textContent !== definition) fullDefinition.open = false;
+      definitionText.textContent = definition;
+      fullDefinition.hidden = definition.length <= 180;
+    }
   }
-  function commit() {
+  function commit(fromMouse = false) {
     const code = filtered[active];
     if (!code || !canOpen(mode)) return;
     if (mode === 'primary') {
-      if (code.button) { if (code.button.disabled) return; code.button.click(); }
-      else {
-        primary.value = code.id;
-        const noCode = form.querySelector('[name=no_code]'); if (noCode) noCode.checked = false;
-        primary.dispatchEvent(new Event('change', {bubbles:true}));
+      if (code.button?.disabled) return;
+      if (primary.value !== code.id || form.querySelector('[name=no_code]').checked) {
+        if (code.button) code.button.click();
+        else {
+          primary.value = code.id;
+          const noCode = form.querySelector('[name=no_code]'); if (noCode) noCode.checked = false;
+          primary.dispatchEvent(new Event('change', {bubbles:true}));
+        }
       }
     } else {
       const selected = secondary.find(input => input.value === code.id);
       if (!selected || selected.disabled || selected.value === primary.value) return;
-      secondary.forEach(input => input.checked = input === selected);
-      const noCode = form.querySelector('[name=no_code]'); if (noCode) noCode.checked = false;
-      selected.dispatchEvent(new Event('change', {bubbles:true}));
+      if (!selected.checked) {
+        secondary.forEach(input => input.checked = input === selected);
+        const noCode = form.querySelector('[name=no_code]'); if (noCode) noCode.checked = false;
+        selected.dispatchEvent(new Event('change', {bubbles:true}));
+      }
     }
-    close();
-    if (quickMode) form.focus();
+    if (quickMode && !fromMouse) {
+      confirmedChoice = choiceSignature();
+      if (confirmationStatus) { confirmationStatus.textContent = `已选定，再按 ${label(bindings.pickerConfirm)} 确认并下一条`; confirmationStatus.hidden = false; }
+    } else clearConfirmation();
+    list.focus();
+  }
+  function confirmChoice(allowAdvance = true) {
+    if (allowAdvance && quickMode && confirmedChoice && confirmedChoice === choiceSignature()
+        && document.activeElement !== search && primary.value) {
+      advance();
+    } else commit();
   }
   function render(preferred = '') {
     const query = search.value.trim().toLocaleLowerCase();
@@ -265,12 +334,13 @@
       option.id = `shortcut-code-${index}`; option.className = 'shortcut-code-option'; option.setAttribute('role', 'option'); option.setAttribute('aria-selected', 'false');
       const heading = document.createElement('strong'); heading.textContent = code.label; option.append(heading);
       if (code.definition) { const description = document.createElement('span'); description.textContent = code.definition.length > 180 ? code.definition.slice(0, 180) + '…' : code.definition; option.append(description); }
-      option.addEventListener('click', () => { markActive(index); commit(); }); fragment.append(option);
+      option.addEventListener('click', () => { markActive(index); commit(true); }); fragment.append(option);
     });
     list.append(fragment); empty.hidden = filtered.length !== 0; count.textContent = `${filtered.length} 个代码`;
     markActive(Math.max(0, filtered.findIndex(code => code.id === preferred)));
   }
   function setPickerMode(action) {
+    clearConfirmation();
     mode = action; title.textContent = action === 'secondary' ? '选择次代码' : '选择主代码';
     list.setAttribute('aria-label', title.textContent);
   }
@@ -282,6 +352,7 @@
     search.value = ''; dialog.hidden = false;
     if (!dialog.open) dialog.show();
     opened = true; search.setAttribute('aria-expanded', 'true');
+    fitWindow();
     render(action === 'primary' ? primary.value : secondary.find(input => input.checked)?.value); list.focus();
   }
   if (form && primary && toolbar && dialog && typeof dialog.show === 'function') {
@@ -300,6 +371,29 @@
     }));
     if (nextLinks.length) form.dataset.nextReminderReady = 'true';
     closeButton.addEventListener('click', close);
+    dragHandle?.addEventListener('pointerdown', event => beginWindowPointer(event, false));
+    resizeHandle?.addEventListener('pointerdown', event => beginWindowPointer(event, true));
+    document.addEventListener('pointermove', event => {
+      if (!pointerWindow || event.pointerId !== pointerWindow.id) return;
+      const dx = event.clientX - pointerWindow.x, dy = event.clientY - pointerWindow.y;
+      const rect = pointerWindow.rect;
+      windowRect = pointerWindow.resizing ? {...rect, width:rect.width + dx, height:rect.height + dy}
+        : {...rect, left:rect.left + dx, top:rect.top + dy};
+      fitWindow();
+    });
+    const finishPointer = event => { if (pointerWindow && event.pointerId === pointerWindow.id) { pointerWindow = null; rememberWindow(); } };
+    document.addEventListener('pointerup', finishPointer);
+    document.addEventListener('pointercancel', finishPointer);
+    resizeHandle?.addEventListener('keydown', event => {
+      if (!['ArrowLeft', 'ArrowRight', 'ArrowUp', 'ArrowDown'].includes(event.key)) return;
+      event.preventDefault(); fitWindow();
+      const step = event.shiftKey ? 50 : 20;
+      windowRect.width += event.key === 'ArrowRight' ? step : event.key === 'ArrowLeft' ? -step : 0;
+      windowRect.height += event.key === 'ArrowDown' ? step : event.key === 'ArrowUp' ? -step : 0;
+      fitWindow(); rememberWindow();
+    });
+    resetWindowButton?.addEventListener('click', () => { fitWindow(true); rememberWindow(); });
+    window.addEventListener('resize', () => { fitWindow(); if (opened) rememberWindow(); });
     dialog.addEventListener('cancel', event => { event.preventDefault(); close(); });
     skipPrompt?.querySelector('[data-shortcut-skip-confirm]')?.addEventListener('click', confirmSkip);
     skipPrompt?.querySelector('[data-shortcut-skip-cancel]')?.addEventListener('click', () => { hideSkipPrompt(); form.focus(); });
@@ -324,14 +418,14 @@
     refreshButtons();
     if (quickMode && form?.dataset.splitPreview !== 'true' && !opened) open(mode);
   });
-  window.addEventListener('platform:shortcuts-updated', showQuickMode);
+  window.addEventListener('platform:shortcuts-updated', () => { clearConfirmation(); showQuickMode(); });
   window.addEventListener('platform:task-completion-open', () => { hideSkipPrompt(); close(); });
   window.addEventListener('storage', event => {
     if (event.key !== storageKey && event.key !== null) return;
     try {
       const current = readBindings(event.newValue);
       if (current.error) return;
-      bindings = current.values; updateHints(); showQuickMode();
+      bindings = current.values; clearConfirmation(); updateHints(); showQuickMode();
       if (!recording) { pending = {...bindings}; refreshSettings(); if (current.warning) message(current.warning, true); }
     } catch (_) { /* A partial or invalid storage update never replaces active shortcuts. */ }
   });
@@ -379,7 +473,7 @@
         return;
       }
       if (opened && chord === bindings.pickerConfirm && document.activeElement !== form && !nativeActivation(document.activeElement)) {
-        event.preventDefault(); commit(); return;
+        event.preventDefault(); confirmChoice(); return;
       }
     }
     if (opened && [list, search, closeButton].includes(document.activeElement)) {
@@ -389,13 +483,13 @@
       if (action && !textInput && !closeActivation) {
         event.preventDefault();
         if (action === 'pickerClose') exitQuickMode();
-        else if (action === 'pickerConfirm') commit();
+        else if (action === 'pickerConfirm') confirmChoice();
         else markActive(active + (action === 'pickerDown' ? 1 : -1));
       }
       else if (event.key === 'Escape') { event.preventDefault(); close(); }
       else if (['ArrowDown', 'ArrowUp', 'Home', 'End'].includes(event.key)) {
         event.preventDefault(); markActive(event.key === 'Home' ? 0 : event.key === 'End' ? filtered.length - 1 : active + (event.key === 'ArrowDown' ? 1 : -1));
-      } else if (event.key === 'Enter' && event.target !== closeButton) { event.preventDefault(); commit(); }
+      } else if (event.key === 'Enter' && !event.ctrlKey && !event.altKey && !event.metaKey && !event.shiftKey && event.target !== closeButton) { event.preventDefault(); confirmChoice(false); }
       else if (event.key === 'Tab') {
         if (document.activeElement === search && !event.shiftKey) { event.preventDefault(); list.focus(); }
       }
@@ -403,6 +497,7 @@
         event.preventDefault();
         if (chord === bindings.primary) open('primary');
         else if (chord === bindings.secondary) open('secondary');
+        else { const button = form.querySelector(`[data-action="${chord === bindings.next ? 'submit_next' : 'save'}"]`); if (canEdit() && button && !button.disabled) button.click(); }
       }
       return;
     }
@@ -411,7 +506,9 @@
     const target = document.activeElement;
     const codingFocus = target === form || target?.matches?.('[data-code-choice]')
       || !textEntry(target) && !nativeActivation(target) && (target?.tagName !== 'INPUT' || form.contains(target));
-    if (quickMode && chord && chord === bindings.pickerConfirm && codingFocus && (!skipPrompt || skipPrompt.hidden)) { event.preventDefault(); advance(); return; }
+    if (quickMode && chord && chord === bindings.pickerConfirm && codingFocus && (!skipPrompt || skipPrompt.hidden)) {
+      event.preventDefault(); if (!opened) open('primary'); if (opened) confirmChoice(); return;
+    }
     const action = chord ? globalActions.find(name => bindings[name] === chord) : null;
     if (!action) return;
     event.preventDefault();

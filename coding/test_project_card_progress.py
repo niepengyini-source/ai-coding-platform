@@ -40,22 +40,23 @@ class ProjectCardProgressTests(TestCase):
         self.r.assignments.exclude(coder=self.owner).update(status='submitted', primary=self.first)
         response, progress = self.card()
         self.assertEqual((progress['submitted'], progress['total']), (1, 3))
-        self.assertContains(response, '1/3')
-        self.assertContains(response, '我的编码 · ' + self.r.name)
+        self.assertContains(response, '4/6')
+        self.assertContains(response, '团队进度')
+        self.assertContains(response, self.r.name)
         self.assertNotContains(response, 'workspace-coding-count is-complete')
 
     def test_all_confirmed_shows_green_completed_for_this_batch(self):
-        self.mine.update(status='submitted', primary=self.first)
+        self.r.assignments.update(status='submitted', primary=self.first)
         response, progress = self.card()
         self.assertTrue(progress['complete'])
         self.assertContains(response, 'workspace-coding-count is-complete')
-        self.assertContains(response, '3/3<strong>已完成</strong>')
+        self.assertContains(response, '6/6<strong>已完成</strong>')
 
     def test_project_without_personal_tasks_is_not_completed(self):
         self.client.force_login(self.viewer)
         response, progress = self.card()
         self.assertIsNone(progress)
-        self.assertContains(response, '未开始')
+        self.assertContains(response, '暂无进行中的任务')
         self.assertNotContains(response, 'workspace-coding-count is-complete')
 
     def test_multiple_rounds_are_not_added_together(self):
@@ -63,8 +64,8 @@ class ProjectCardProgressTests(TestCase):
         response, progress = self.card()
         self.assertEqual(progress['round_id'], latest.pk)
         self.assertEqual(progress['total'], 3)
-        self.assertContains(response, '0/3')
-        self.assertNotContains(response, '0/6')
+        self.assertContains(response, '0/6')
+        self.assertNotContains(response, '0/9')
 
     def test_active_unfinished_round_precedes_newer_completed_round(self):
         latest = self.new_round('虚构已完成批次')

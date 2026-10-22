@@ -268,3 +268,43 @@ test('material text and conversation keys are rendered as literal text rather th
   assert.equal(row.children[1].children[1].textContent, key);
   assert.equal(ui.status.textContent, '');
 });
+
+test('loaded source identities and references stay literal and distinct from recipients', async () => {
+  const payload = '<img src=x onerror="alert(1)">';
+  const ui = setup(async () => response([{position: 13, text: '正文', source_information: {
+    items: [{label: '身份', value: 'AI'}, {label: '发言者', value: payload}],
+    reference: {label: '引用消息', text: payload, position: 8},
+  }}], 13, false));
+  await ui.click('after');
+  const body = ui.after.children[2].children[1];
+  const info = body.children[0];
+  assert.equal(info.className, 'source-information');
+  assert.equal(info.children[0].children[0].children[0].textContent, '身份');
+  assert.equal(info.children[0].children[0].children[1], ' AI');
+  assert.equal(info.children[0].children[1].children[1], ' ' + payload);
+  assert.equal(info.children[1].children[0].textContent, '引用消息 · 原记录 8');
+  assert.equal(info.children[1].children[1].textContent, payload);
+  assert.equal(body.children[1].textContent, '正文');
+  assert.equal(ui.status.textContent, '');
+});
+
+test('missing or empty optional source information does not add an empty summary', async () => {
+  for (const source_information of [null, {}, {items: [], reference: null}]) {
+    const ui = setup(async () => response([{position: 13, text: '未提供身份的原文', source_information}], 13, false));
+    await ui.click('after');
+    assert.equal(ui.after.children[2].children[1].children[0].tagName, 'p');
+    assert.equal(ui.after.children[2].children[1].children[0].textContent, '未提供身份的原文');
+  }
+});
+
+test('unresolved reference previews remain expandable without inventing a source position', async () => {
+  const ui = setup(async () => response([{position: 13, text: '正文', source_information: {
+    items: [null, {label: '身份', value: 123}],
+    reference: {label: '引用消息（未定位）', text: '原始预览', position: null},
+  }}], 13, false));
+  await ui.click('after');
+  const info = ui.after.children[2].children[1].children[0];
+  assert.equal(info.children[0].children[0].textContent, '引用消息（未定位）');
+  assert.equal(info.children[0].children[1].textContent, '原始预览');
+  assert.equal(ui.status.textContent, '');
+});
