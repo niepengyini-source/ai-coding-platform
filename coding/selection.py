@@ -42,7 +42,8 @@ def select_round_units(project, count, seed, stratify='', unit_ids=None,
         raise ValueError('选取数量不能小于0。')
     if selection_mode != 'random' and stratify:
         raise ValueError('按顺序选取和手动选择不能同时使用分层随机抽样。')
-    units = list(Unit.objects.filter(record__document__project=project, active=True).select_related('record'))
+    units = list(Unit.objects.filter(record__document__project=project, active=True,
+                                    record__document__units_confirmed=True).select_related('record'))
     if not units:
         raise ValueError('请先导入材料并确认编码单元。')
     requested_ids = set(unit_ids or [])

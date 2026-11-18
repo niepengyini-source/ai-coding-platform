@@ -25,6 +25,7 @@ def alpha(matrix):
 
 
 def report_for(round_obj):
+    parallel = round_obj.book.policy == 'parallel'
     assignments = list(round_obj.assignments.filter(superseded=False).select_related('coder', 'primary'))
     coder_ids = sorted({a.coder_id for a in assignments})
     unit_ids = sorted({a.unit_id for a in assignments})
@@ -47,7 +48,7 @@ def report_for(round_obj):
     def labels(a):
         if not a or a.status != 'submitted' or a.uncertain:
             return None
-        return frozenset(([a.primary_id] if a.primary_id else []) + a.secondary)
+        return frozenset(a.labels if parallel else ([a.primary_id] if a.primary_id else []) + a.secondary)
     pairs = []
     for first, second in combinations(coder_ids, 2):
         comparable = [(labels(by_key.get((first, u))), labels(by_key.get((second, u)))) for u in unit_ids]
@@ -58,7 +59,7 @@ def report_for(round_obj):
                  'kappa': kappa([next(iter(a), 0) for a, b in comparable], [next(iter(b), 0) for a, b in comparable]) if round_obj.book.policy == 'single' else None}
         primary_pairs = [(by_key.get((first, u)), by_key.get((second, u))) for u in unit_ids]
         primary_pairs = [(a.primary_id or 0, b.primary_id or 0) for a, b in primary_pairs
-                         if a and b and labels(a) is not None and labels(b) is not None]
+                         if not parallel and a and b and labels(a) is not None and labels(b) is not None]
         entry['primary_kappa'] = kappa([a for a, b in primary_pairs], [b for a, b in primary_pairs])
         entry['primary_agreement'] = round(sum(a == b for a, b in primary_pairs) / len(primary_pairs), 6) if primary_pairs else None
         secondary_pairs = [(frozenset(a.secondary), frozenset(b.secondary))
@@ -101,15 +102,17 @@ def report_for(round_obj):
             'assignment_count': len(assignments),
             'uncertain_rate': round(sum(a.uncertain for a in assignments) / len(assignments), 6) if assignments else None,
             'excluded_or_missing_count': sum(labels(a) is None for a in assignments),
-            'method': '名义类别；仅提交且非不确定的独立编码；无代码作为明确空集；缺失按有效配对处理。主、次代码分别比较，次代码空集也参与比较；多标签逐代码二元比较。一级维度仅使用编码本显式设置的最顶层父代码，对主代码归类，不按名称猜测；单个代码比较不合并子代码。不确定比例以全部分配记录为分母。',
+            'method': ('并列代码按集合完全相等及逐代码二元判断比较，不区分主次；不计算主代码信度。仅提交且非需复核的独立编码参与；无适用代码为空集，未提交记录作为缺失。'
+                       if parallel else '名义类别；仅提交且非不确定的独立编码；无代码作为明确空集；缺失按有效配对处理。主、次代码分别比较，次代码空集也参与比较；多标签逐代码二元比较。一级维度仅使用编码本显式设置的最顶层父代码，对主代码归类，不按名称猜测；单个代码比较不合并子代码。不确定比例以全部分配记录为分母。'),
             'undefined_note': '—表示样本不足或类别无变异，不能解释成零分或满分。培训练习结果不代表独立编码信度。',
             'training': round_obj.kind == 'training', 'pairs': pairs,
             'nominal_alpha': alpha(matrix) if round_obj.book.policy == 'single' else None,
-            'primary_alpha': alpha(primary_matrix),
+            'primary_alpha': None if parallel else alpha(primary_matrix),
             'has_hierarchy': has_hierarchy,
-            'dimension_alpha': alpha(dimension_matrix) if has_hierarchy else None,
+            'dimension_alpha': alpha(dimension_matrix) if has_hierarchy and not parallel else None,
             'hierarchy_snapshot': [{'id': c.id, 'key': c.key, 'name': c.name, 'parent_id': c.parent_id, 'top_level_id': roots[c.id]} for c in codes],
             'per_code': per_code,
             'snapshot': [{'id': a.id, 'unit_id': a.unit_id, 'coder_id': a.coder_id, 'revision': a.revision,
                           'primary': a.primary_id, 'secondary': a.secondary, 'uncertain': a.uncertain,
-                          'no_code': a.no_code, 'status': a.status} for a in assignments]}
+                          'no_code': a.no_code, 'status': a.status,
+                          **({'labels': a.labels} if parallel else {})} for a in assignments]}

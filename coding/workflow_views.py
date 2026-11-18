@@ -21,6 +21,10 @@ from .workflow_forms import HistoryReopenForm, HistorySearchForm, QuickStartForm
 def progress_data(project, user, role, params):
     assignments = Assignment.objects.filter(round__project=project, superseded=False)
     data = {'my': counts(assignments.filter(coder=user))}
+    from .source_progress import project_rows
+    source_rows = project_rows(project, user, role)
+    if source_rows:
+        data['source_rows'] = source_rows
     rows = Paginator(round_counts(project, user), 25).get_page(params.get('page'))
     data['rows'] = list(rows.object_list)
     for row in data['rows']:
@@ -51,7 +55,14 @@ def coding_entry(request, project_id):
 
 
 def missing_coding_resources(request, project, role):
-    if not Unit.objects.filter(record__document__project=project, active=True).exists():
+    from .source_coding import coding_documents
+    pending = coding_documents(project).filter(units_confirmed=False)
+    has_pending = pending.exists()
+    if has_pending and current_coding_round(project, request.user):
+        return None
+    has_units = Unit.objects.filter(record__document__project=project, active=True,
+                                    record__document__units_confirmed=True).exists()
+    if not has_units and not has_pending:
         instruction = '请先导入编码材料。' if role in ('owner', 'reviewer') else '请联系负责人导入编码材料。'
         messages.warning(request, '尚未导入有效编码单元，' + instruction, extra_tags='setup-materials')
         return redirect('materials' if role in ('owner', 'reviewer') else 'units', project.pk)
@@ -60,10 +71,8 @@ def missing_coding_resources(request, project, role):
         messages.warning(request, '项目缺少初始编码本，请联系平台维护者恢复后导入编码规则。')
         return render(request, 'coding/quick_start.html', {'project': project, 'role': role,
                                                         'has_books': False, 'missing_book': True})
-    if not book.codes.exists():
-        instruction = '请先导入编码本或添加代码。' if role in ('owner', 'reviewer') else '请联系负责人导入编码本或添加代码。'
-        messages.warning(request, '当前项目还没有可用的编码规则，' + instruction, extra_tags='setup-codebook')
-        return redirect('codebook', project.pk, book.pk)
+    if not has_units and pending.filter(normalized__type='image').exists():
+        return redirect('source_start', project.pk)
     return None
 
 
@@ -74,7 +83,7 @@ def quick_start(request, project_id):
     if missing:
         return missing
     current = project.codebooks.first()
-    books = project.codebooks.filter(pk=current.pk, codes__isnull=False).distinct() if current else project.codebooks.none()
+    books = project.codebooks.filter(pk=current.pk) if current else project.codebooks.none()
     default = books.first()
     form = QuickStartForm(request.POST if request.method == 'POST' else None, project=project,
                           initial={'book_id': default.pk if default else None, 'token': uuid.uuid4()})
@@ -153,12 +162,19 @@ def history(request, project_id):
     for a in items:
         a.history_flags = history_permissions(a, request.user, role)
         a.secondary_display = [code_map.get(code_id, '无法对应的旧代码') for code_id in a.secondary]
+        a.parallel_display = [code_map.get(code_id, '无法对应的旧代码') for code_id in a.labels]
     page.object_list = items
     exact_fields = ['unit_id', 'assignment_id', 'code', 'filename', 'round_id', 'book_version', 'status', 'uncertain', 'entry_kind']
     presets = [{'label': label, 'url': query_link(data, period=value, start=None, end=None)}
                for value, label in [('', '全部'), ('today', '今天'), ('week', '近7天'), ('month', '近30天')]]
+    from .source_models import SourceAnnotation
+    source_rows = list(SourceAnnotation.objects.filter(task__round__project=project, task__coder=request.user)
+                       .select_related('task__round__book', 'task__document', 'primary').order_by('-updated_at', '-pk')[:25])
+    for entry in source_rows:
+        entry.saved_code_names = [code.get('name') or code.get('key', '') for code in entry.book_snapshot.get('codes', [])]
     return render(request, 'coding/history.html', {'project': project, 'role': role, 'form': form, 'page': page,
         'presets': presets, 'exact_fields': [form[key] for key in exact_fields],
+        'source_history_rows': source_rows,
         'exact_open': data.get('mode') == 'exact' or any(data.get(key) for key in exact_fields),
         'previous_url': query_link(data, page=page.previous_page_number()) if page.has_previous() else '',
         'next_url': query_link(data, page=page.next_page_number()) if page.has_next() else ''})
@@ -166,10 +182,10 @@ def history(request, project_id):
 
 def history_context(request, project, role, a, reopen_form=None):
     events = Paginator(annotation_events(a), 20).get_page(request.GET.get('page'))
-    code_ids = {a.primary_id, *a.secondary}
+    code_ids = {a.primary_id, *a.secondary, *a.labels}
     for event in events:
         for source in (event.before, event.after):
-            code_ids.update([source.get('primary'), *source.get('secondary', [])])
+            code_ids.update([source.get('primary'), *source.get('secondary', []), *source.get('labels', [])])
     code_map = {c.pk: str(c) for c in Code.objects.filter(book__project=project,
                 pk__in=[pk for pk in code_ids if type(pk) is int])}
     for event in events:
@@ -178,9 +194,11 @@ def history_context(request, project, role, a, reopen_form=None):
             displayed = dict(source)
             displayed['primary_label'] = code_map.get(source.get('primary'), '—')
             displayed['secondary_labels'] = [code_map.get(code_id, '无法对应的旧代码') for code_id in source.get('secondary', [])]
+            displayed['parallel_labels'] = [code_map.get(code_id, '无法对应的旧代码') for code_id in source.get('labels', [])]
             setattr(event, name + '_display', displayed)
     return {'project': project, 'role': role, 'record': a, 'events': events,
             'secondary_labels': [code_map.get(code_id, '无法对应的旧代码') for code_id in a.secondary],
+            'parallel_labels': [code_map.get(code_id, '无法对应的旧代码') for code_id in a.labels],
             'flags': history_permissions(a, request.user, role),
             'reopen_form': reopen_form or HistoryReopenForm(initial={'revision': a.revision})}
 

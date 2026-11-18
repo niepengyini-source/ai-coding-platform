@@ -1,8 +1,26 @@
 import hashlib
+from django.conf import settings
 from django.core.cache import cache
-from django.http import HttpResponse
+from django.http import HttpResponse, HttpResponseRedirect
 from django.shortcuts import redirect
 from .models import Profile
+
+
+class PublicTunnelMiddleware:
+    def __init__(self, get_response):
+        self.get_response = get_response
+
+    def __call__(self, request):
+        public = bool(settings.PLATFORM_PUBLIC_HOST) and request.get_host().lower() == settings.PLATFORM_PUBLIC_HOST
+        if public and not request.is_secure():
+            return HttpResponseRedirect('https://' + settings.PLATFORM_PUBLIC_HOST + request.get_full_path())
+        response = self.get_response(request)
+        if public:
+            # Run outside Session/CSRF middleware so their cookies have already been added.
+            for name in (settings.SESSION_COOKIE_NAME, settings.CSRF_COOKIE_NAME):
+                if name in response.cookies:
+                    response.cookies[name]['secure'] = True
+        return response
 
 
 class PasswordChangeMiddleware:

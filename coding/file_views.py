@@ -208,6 +208,8 @@ def export_table_for(request, project, role, params):
     r = get_object_or_404(Round.objects.select_related('book', 'project'), project=project, pk=round_id)
     if r.kind == 'quick' and r.started_by_id != request.user.pk and role not in ('owner', 'reviewer'):
         raise Http404
+    if r.sampling.get('source_coding'):
+        raise ValueError('原文选段请使用下方“我的原文选段编码”导出入口，保留片段位置与编码本快照。')
     if target == 'mine':
         if r.assignments.filter(coder=request.user, superseded=False).count() > MAX_EXPORT_ROWS:
             raise ValueError('一次最多导出50000行，请按轮次分批导出。')
@@ -229,9 +231,11 @@ def exports(request, project_id):
     project, role = access(request, project_id)
     params = request.POST if request.method == 'POST' else request.GET
     context = {'project': project, 'role': role, 'targets': TARGETS, 'books': project.codebooks.all(),
-               'rounds': visible_rounds(project, request.user, role).order_by('-id'), 'target': params.get('target', 'codebook'),
+               'rounds': visible_rounds(project, request.user, role).exclude(pk__in=Round.objects.filter(sampling__source_coding=True)).order_by('-id'), 'target': params.get('target', 'codebook'),
                'selected_round': params.get('round', ''), 'selected_book': params.get('book', ''),
                'include_inactive': params.get('include_inactive') == 'yes'}
+    from .source_progress import project_rows
+    context['source_rows'] = project_rows(project, request.user, role)
     try:
         table, book, r = export_table_for(request, project, role, params)
         context.update(book=book, round=r, table=table, row_count=len(table.rows), total_row_count=len(table.rows))

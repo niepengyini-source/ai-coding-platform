@@ -1,12 +1,13 @@
 from django import forms
 from .codebook_files import FIELDS, suggest_mapping
 from .exporting import FORMATS, BASE_LABELS
+from .models import Codebook
 
 
 class CodebookMappingForm(forms.Form):
     mode = forms.ChoiceField(label='导入方式')
     title = forms.CharField(label='编码本名称（另存为新版本时使用）', max_length=120)
-    policy = forms.ChoiceField(label='新版本标签方式', choices=[('single', '单标签'), ('multi', '主代码＋可选次代码')])
+    policy = forms.ChoiceField(label='新版本标签方式', choices=Codebook._meta.get_field('policy').choices)
     change_note = forms.CharField(label='本次导入说明', max_length=2000,
                                   widget=forms.Textarea(attrs={'rows': 2}))
 

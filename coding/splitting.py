@@ -109,7 +109,7 @@ def split_personal(assignment_id, actor, data):
                     'superseded': previous.superseded, 'round_id': r.pk, 'book_id': r.book_id,
                     'updated_at': previous.updated_at.isoformat(), 'unit': {'id': unit.pk,
                         'record_id': unit.record_id, 'start': unit.start, 'end': unit.end, 'text': unit.text}}
-                previous.primary_id, previous.secondary, previous.note = None, [], ''
+                previous.primary_id, previous.secondary, previous.labels, previous.note = None, [], [], ''
                 previous.uncertain, previous.no_code, previous.superseded = False, False, False
                 previous.status, previous.last_token = 'draft', ''
                 previous.revision += 1
@@ -210,7 +210,7 @@ def split_restore_options(a, actor):
             break
         if a.pk not in [entry.pk for entry in live] or _branch_locked(parent, descendants):
             break
-        coded = sum(bool(entry.revision or entry.primary_id or entry.secondary or entry.note or
+        coded = sum(bool(entry.revision or entry.primary_id or entry.secondary or entry.labels or entry.note or
                          entry.no_code or entry.uncertain or entry.status == 'submitted') for entry in descendants)
         options.append({'parent_id': parent.pk, 'parent_revision': parent.revision,
             'branch_token': _branch_token(parent, event, descendants, a.pk),
@@ -268,7 +268,7 @@ def restore_personal_split(assignment_id, actor, data):
     if _branch_token(parent, event, descendants, a.pk) != data['branch_token']:
         raise Conflict('其他片段已变化，请刷新核对后再撤回拆分。')
     if not data.get('confirm_coded', False) and any(
-            entry.revision or entry.primary_id or entry.secondary or entry.note or entry.no_code or
+            entry.revision or entry.primary_id or entry.secondary or entry.labels or entry.note or entry.no_code or
             entry.uncertain or entry.status == 'submitted' for entry in descendants):
         raise Conflict('拆分后的片段已有编码，请确认保留历史并撤回拆分。')
     before = {**annotation_data(parent), 'superseded': True,

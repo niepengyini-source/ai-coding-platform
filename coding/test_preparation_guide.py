@@ -213,7 +213,9 @@ class PreparationGuideTests(TestCase):
         response = self.client.get(self.url('units'))
         self.guide(response, 2, complete=(1,), next_url=self.url('codebook'))
         response = self.client.get(self.url('coding_entry'), follow=True)
-        self.guide(response, 2, complete=(1,), next_url=self.url('book_import'))
+        self.assertTemplateUsed(response, 'coding/quick_start.html')
+        self.assertContains(response, '新增代码')
+        self.assertFalse(self.book.codes.exists())
         self.assertFalse(self.project.rounds.exists())
 
     def test_failed_rule_confirmation_keeps_preview_and_no_next_link(self):

@@ -1,7 +1,9 @@
 'use strict';
 document.querySelectorAll('.nav-item').forEach(a => {
-  if (new URL(a.href).pathname === location.pathname) {
+  const currentPage = new URL(a.href).pathname === location.pathname;
+  if (currentPage || a.hasAttribute('aria-current')) {
     a.classList.add('active');
+    if (currentPage) a.setAttribute('aria-current', 'page');
     const group = a.closest('details');
     if (group) group.open = true;
   }
@@ -14,11 +16,15 @@ if (form) {
   const initial = JSON.parse(document.getElementById('annotation-data').textContent);
   const status = form.querySelector('.save-status');
   const primary = form.querySelector('[name=primary]');
+  const parallel = form.dataset.labelPolicy === 'parallel';
+  const parallelChoices = parallel ? [...form.querySelectorAll('[name=labels]')] : [];
+  const hasCode = () => parallel ? parallelChoices.some(input => input.checked) : !!primary.value;
   const note = form.querySelector('[name=note]');
   primary.value = initial.primary || '';
   note.value = initial.note || '';
   ['uncertain','no_code'].forEach(k => form.querySelector(`[name=${k}]`).checked = !!initial[k]);
   form.querySelectorAll('[name=secondary]').forEach(el => el.checked = (initial.secondary || []).includes(Number(el.value)));
+  parallelChoices.forEach(el => el.checked = (initial.labels || []).includes(Number(el.value)));
   let revision = initial.revision, dirty = false, generation = 0, inFlight = false, timer, halted = false, pending = null, committed = false;
   let secondaryChanged = false, savedSignal = Promise.resolve(true), finishSave, advancePromise = null, advancing = false;
   const legacySecondary = (initial.secondary || []).length > 1 ? initial.secondary : null;
@@ -35,18 +41,20 @@ if (form) {
   const uuid = () => globalThis.crypto?.randomUUID ? crypto.randomUUID() : `${Date.now()}-${Math.random().toString(36).slice(2)}`;
   const payload = action => ({revision, action, token: uuid(), book_id: form.dataset.bookId ? Number(form.dataset.bookId) : undefined, primary: primary.value ? Number(primary.value) : null,
     secondary: legacySecondary && !secondaryChanged ? legacySecondary : [...form.querySelectorAll('[name=secondary]:checked')].map(el => Number(el.value)),
-    uncertain: form.querySelector('[name=uncertain]').checked, no_code: form.querySelector('[name=no_code]').checked, note: note.value});
+    ...(parallel ? {labels: parallelChoices.filter(input => input.checked).map(input => Number(input.value))} : {}),
+    uncertain: form.querySelector('[name=uncertain]').checked, no_code: form.querySelector('[name=no_code]').checked, note: note.value,
+    ...(form.dataset.aiRecommendationId ? {ai_recommendation_id: Number(form.dataset.aiRecommendationId)} : {})});
   const schedule = () => {
     clearTimeout(timer);
     if (form.dataset.mode === 'annotation' && !halted && !locked) timer = setTimeout(() => write('save'), 1200);
   };
-  const hasJudgment = () => !!(primary.value || form.querySelector('[name=no_code]').checked || form.querySelector('[name=uncertain]').checked)
+  const hasJudgment = () => !!(hasCode() || form.querySelector('[name=no_code]').checked || form.querySelector('[name=uncertain]').checked)
     && (!form.querySelector('[name=uncertain]').checked || !!note.value.trim());
   const refreshReviewMarker = () => {
     const marker = form.querySelector('[data-review-marker]');
     if (!marker) return;
     const uncertain = form.querySelector('[name=uncertain]').checked;
-    const judged = !!(primary.value || form.querySelector('[name=no_code]').checked);
+    const judged = !!(hasCode() || form.querySelector('[name=no_code]').checked);
     marker.textContent = uncertain ? '需复核' : judged ? '已确认' : '未判断';
     marker.dataset.reviewState = uncertain ? 'review' : judged ? 'confirmed' : 'empty';
   };
@@ -142,6 +150,7 @@ if (form) {
       }
       if (legacyNotice) legacyNotice.hidden = true;
     }
+    if (event?.target?.name === 'labels' && event.target.checked) form.querySelector('[name=no_code]').checked = false;
     dirty = true; generation++; restoreControls(); schedule();
   });
   primary.addEventListener('change', () => {
@@ -151,6 +160,7 @@ if (form) {
   });
   if (form.dataset.mode === 'decision') form.querySelector('[name=no_code]').addEventListener('change', event => {
     if (event.target.checked) {
+      parallelChoices.forEach(input => input.checked = false);
       primary.value = '';
       primary.dispatchEvent(new Event('change', {bubbles:true}));
     }
@@ -184,7 +194,7 @@ if (form) {
     if (locked || halted || committed || form.dataset.splitting === 'true') blocked = '当前记录不可提交，请先核对页面状态。';
     else if (form.dataset.splitPreview === 'true') blocked = '请先完成或取消拆分，再确认编码。';
     else if (form.dataset.mode !== 'annotation') blocked = '请在个人编码中确认并进入下一条。';
-    else if (!primary.value) blocked = '先选择主代码';
+    else if (!hasCode()) blocked = parallel ? '先选择代码' : '先选择主代码';
     else if (!hasJudgment()) blocked = '请补充不确定的原因';
     if (blocked) {
       setStatus(blocked, 'error');
@@ -196,7 +206,7 @@ if (form) {
     advancePromise = (async () => {
       try {
         if (pending?.payload.action !== 'submit') await flushDrafts('正在提交，请确认完成后再切换。');
-        if (locked || halted || committed || form.dataset.splitting === 'true' || form.dataset.splitPreview === 'true' || !primary.value) throw new Error('当前记录不可提交，请先核对主代码和页面状态。');
+        if (locked || halted || committed || form.dataset.splitting === 'true' || form.dataset.splitPreview === 'true' || !hasCode()) throw new Error('当前记录不可提交，请先核对代码和页面状态。');
         if (!await write('submit_next') || !committed) throw new Error(status.textContent || '未确认提交成功，请重试。');
         return true;
       } catch (error) {

@@ -24,14 +24,20 @@ if not os.environ.get('PLATFORM_SECRET_KEY') and not key_file.exists():
         pass
 SECRET_KEY = os.environ.get('PLATFORM_SECRET_KEY') or key_file.read_text(encoding='utf-8')
 DEBUG = os.environ.get('PLATFORM_DEBUG', '0') == '1'
+# Explicit opt-in for the local simulated first milestone; no external API is connected.
+AI_RECOMMENDATION_BACKEND = os.environ.get('PLATFORM_AI_BACKEND', '')
 PLATFORM_ALLOW_REGISTRATION = os.environ.get('PLATFORM_ALLOW_REGISTRATION', '1') == '1'
 ALLOWED_HOSTS = [h.strip() for h in os.environ.get('PLATFORM_ALLOWED_HOSTS', 'localhost,127.0.0.1').split(',') if h.strip()]
-if '*' in ALLOWED_HOSTS:
+PLATFORM_PUBLIC_HOST = os.environ.get('PLATFORM_PUBLIC_HOST', '').strip().lower()
+if PLATFORM_PUBLIC_HOST:
+    ALLOWED_HOSTS.append(PLATFORM_PUBLIC_HOST)
+if '*' in ALLOWED_HOSTS or PLATFORM_PUBLIC_HOST.startswith('.'):
     raise RuntimeError('请列出允许的主机地址，不使用通配符。')
 
 INSTALLED_APPS = ['django.contrib.auth', 'django.contrib.contenttypes', 'django.contrib.sessions',
                   'django.contrib.messages', 'django.contrib.staticfiles', 'coding']
-MIDDLEWARE = ['django.middleware.security.SecurityMiddleware', 'whitenoise.middleware.WhiteNoiseMiddleware',
+MIDDLEWARE = ['django.middleware.security.SecurityMiddleware', 'coding.middleware.PublicTunnelMiddleware',
+              'whitenoise.middleware.WhiteNoiseMiddleware',
               'django.contrib.sessions.middleware.SessionMiddleware', 'django.middleware.common.CommonMiddleware',
               'django.middleware.csrf.CsrfViewMiddleware', 'django.contrib.auth.middleware.AuthenticationMiddleware',
               'coding.middleware.PasswordChangeMiddleware', 'coding.middleware.LoginThrottleMiddleware',

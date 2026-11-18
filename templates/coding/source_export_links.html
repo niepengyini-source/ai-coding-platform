@@ -1,0 +1,20 @@
+{% if source_rows %}
+<section class="card">
+  <h2>我的原文选段编码</h2>
+  <p class="hint">Word 汇总按代码列出名称、描述、来源数和引用数。编码明细包含选段、位置、代码、备注和保存时的编码本版本。</p>
+  {% for entry in source_rows %}
+  {% url 'source_export' entry.round_id as source_export_url %}
+  <div class="section-heading">
+    <p>{{ entry.round__name }} · 材料 {{ entry.done }}/{{ entry.total }} · {{ entry.annotations }} 个片段</p>
+    <div class="button-row">
+      <a href="{% url 'workbench' entry.round_id %}">继续查看</a>
+      <a class="button secondary" href="{{ source_export_url }}?format=docx">编码汇总（Word）</a>
+      <a class="button secondary" href="{{ source_export_url }}?format=xlsx">编码明细（Excel）</a>
+      <a href="{{ source_export_url }}?format=csv">CSV</a>
+      <a href="{{ source_export_url }}?format=tsv">TSV</a>
+      <a href="{{ source_export_url }}?format=json">JSON</a>
+    </div>
+  </div>
+  {% endfor %}
+</section>
+{% endif %}

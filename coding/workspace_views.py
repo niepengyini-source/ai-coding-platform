@@ -26,6 +26,8 @@ def projects(request):
     memberships = list(_memberships(request.user))
     _add_coding_progress(memberships, request.user)
     _add_collaboration_cards(memberships, request.user)
+    from .source_progress import attach_project_cards
+    attach_project_cards(memberships, request.user)
     return render(request, 'coding/projects.html', {
         'memberships': memberships})
 

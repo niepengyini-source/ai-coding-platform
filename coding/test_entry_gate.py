@@ -44,9 +44,12 @@ class CodingEntryGateTests(TestCase):
         self.missing_units()
         self.assert_gate(self.entry, reverse('materials', args=[self.project.pk]), '请先导入编码材料')
 
-    def test_missing_rules_routes_to_current_book_not_historical_ready_book(self):
+    def test_empty_current_rules_do_not_hide_existing_assigned_work(self):
         current = self.empty_current_book()
-        self.assert_gate(self.entry, reverse('codebook', args=[self.project.pk, current.pk]), '请先导入编码本或添加代码')
+        before = (Round.objects.count(), AuditEvent.objects.count())
+        self.assertRedirects(self.client.get(self.entry), reverse('workbench', args=[self.r.pk]))
+        self.assertEqual(before, (Round.objects.count(), AuditEvent.objects.count()))
+        self.assertFalse(current.codes.exists())
 
     def test_ready_resources_continue_existing_assigned_round(self):
         self.assertRedirects(self.client.get(self.entry), reverse('workbench', args=[self.r.pk]))
@@ -76,7 +79,12 @@ class CodingEntryGateTests(TestCase):
 
     def test_quick_start_post_cannot_use_old_book_when_current_is_empty(self):
         current = self.empty_current_book()
-        self.assert_gate(self.quick, reverse('codebook', args=[self.project.pk, current.pk]), '没有可用的编码规则', method='post')
+        before = Round.objects.count()
+        response = self.client.post(self.quick, {'book_id': self.book.pk, 'token': uuid.uuid4()})
+        self.assertEqual(response.status_code, 200)
+        self.assertTrue(response.context['form'].errors)
+        self.assertEqual(response.context['selected_book'], current)
+        self.assertEqual(Round.objects.count(), before)
 
     def test_coder_missing_material_goes_to_accessible_units_page(self):
         self.client.force_login(self.coder)
@@ -84,11 +92,13 @@ class CodingEntryGateTests(TestCase):
         response = self.assert_gate(self.entry, reverse('units', args=[self.project.pk]), '请联系负责人导入编码材料')
         self.assertEqual(self.client.get(response.url).status_code, 200)
 
-    def test_coder_missing_rules_goes_to_accessible_current_rule_page(self):
+    def test_coder_empty_current_rules_can_continue_assigned_work(self):
         self.client.force_login(self.coder)
         current = self.empty_current_book()
-        response = self.assert_gate(self.entry, reverse('codebook', args=[self.project.pk, current.pk]), '请联系负责人导入编码本')
+        response = self.client.get(self.entry)
+        self.assertRedirects(response, reverse('workbench', args=[self.r.pk]))
         self.assertEqual(self.client.get(response.url).status_code, 200)
+        self.assertFalse(current.codes.exists())
 
     def test_reviewer_missing_material_goes_to_import_page(self):
         Membership.objects.filter(project=self.project, user=self.coder).update(role='reviewer')
@@ -155,7 +165,9 @@ class CodingEntryGateTests(TestCase):
             with self.subTest(page=name):
                 response = self.client.get(reverse(name, args=args))
                 sidebar = response.content.decode().split('<nav aria-label="主要导航">')[1].split('</nav>')[0]
-                self.assertIn(f'href="{self.entry}">▶ 开始 / 继续编码', sidebar)
+                link = re.search(r'href="' + re.escape(self.entry) + r'">(.+?)</a>', sidebar, re.S)
+                self.assertIsNotNone(link)
+                self.assertIn('<span class="nav-text">开始 / 继续编码</span>', link.group(1))
 
     def test_missing_material_notice_has_direct_upload_action_for_managers(self):
         self.missing_units()
@@ -168,15 +180,16 @@ class CodingEntryGateTests(TestCase):
                               self.setup_notice(response))
                 self.assertContains(response, 'id="material-upload"')
 
-    def test_missing_rules_notice_links_current_book_import_not_historical_book(self):
+    def test_new_personal_work_can_use_current_empty_book(self):
         current = self.empty_current_book()
         for role in ['owner', 'reviewer']:
             Membership.objects.filter(project=self.project, user=self.owner).update(role=role)
             with self.subTest(role=role):
-                response = self.client.get(self.entry, follow=True)
-                notice = self.setup_notice(response)
-                self.assertIn(f'href="/p/{self.project.pk}/books/{current.pk}/import/">导入编码本', notice)
-                self.assertNotIn(f'/books/{self.book.pk}/import/', notice)
+                response = self.client.get(self.quick)
+                self.assertEqual(response.status_code, 200)
+                self.assertEqual(response.context['selected_book'], current)
+                self.assertContains(response, '新增代码')
+                self.assertFalse(current.codes.exists())
 
     def test_both_missing_notice_prioritizes_material_upload_action(self):
         self.missing_units()
@@ -190,10 +203,8 @@ class CodingEntryGateTests(TestCase):
         self.client.force_login(self.coder)
         current = self.empty_current_book()
         response = self.client.get(self.entry, follow=True)
-        notice = self.setup_notice(response)
-        self.assertIn('请联系负责人', notice)
-        self.assertIn(f'href="/p/{self.project.pk}/books/{current.pk}/">查看规则', notice)
-        self.assertNotIn('/import/', notice)
+        self.assertTemplateUsed(response, 'coding/workbench.html')
+        self.assertNotContains(response, 'workspace-code-create')
         self.assertEqual(self.client.get(reverse('book_import', args=[self.project.pk, current.pk])).status_code, 403)
         self.missing_units()
         response = self.client.get(self.entry, follow=True)

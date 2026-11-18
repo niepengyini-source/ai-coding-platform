@@ -14,6 +14,7 @@ from .archive_forms import ArchiveSearchForm, ArchiveSelectionForm
 from .exporting import MAX_EXPORT_ROWS, archive_annotation_table, export_response
 from .models import Assignment, Code, Membership, Project
 from .services import project_archive
+from .code_references import matching_code_ids
 
 
 class MetadataText(Func):
@@ -47,6 +48,10 @@ def search_archive(project, user, role, data):
         condition = Q(unit__text__iexact=query) if suffix == 'iexact' else Q(unit__text__icontains=query)
         for field in ('note', 'primary__key', 'primary__name', 'unit__record__document__name', 'round__name'):
             condition |= Q(**{field + '__' + suffix: query})
+        matching_ids = list(Code.objects.filter(book__project=project, book__policy='parallel').filter(
+            Q(**{'key__' + suffix: query}) | Q(**{'name__' + suffix: query})).values_list('pk', flat=True))
+        if matching_ids:
+            condition |= Q(labels__regex=r'(^|[^0-9])(' + '|'.join(str(pk) for pk in matching_ids) + r')($|[^0-9])')
         if query.isascii() and query.isdecimal() and len(query) <= 18:
             condition |= Q(unit_id=int(query)) | Q(pk=int(query))
         entries = entries.filter(condition)
@@ -57,12 +62,7 @@ def search_archive(project, user, role, data):
         matching = Code.objects.filter(book__project=project).filter(
             Q(**{'key__' + suffix: data['code']}) | Q(**{'name__' + suffix: data['code']}))
         code_ids = list(matching.values_list('id', flat=True))
-        condition = Q(primary_id__in=code_ids)
-        if code_ids:
-            # JSON arrays store numeric IDs. Digit boundaries avoid matching ID 1
-            # inside 11, and work for old records with more than one secondary code.
-            condition |= Q(secondary__regex=r'(^|[^0-9])(' + '|'.join(str(pk) for pk in code_ids) + r')($|[^0-9])')
-        entries = entries.filter(condition)
+        entries = entries.filter(matching_code_ids(code_ids))
     if data.get('metadata_field'):
         entries = entries.annotate(archive_metadata=MetadataText('unit__record__metadata', data['metadata_field']))
         entries = entries.filter(**{'archive_metadata__' + suffix: data['metadata_value']})
@@ -137,19 +137,23 @@ def archive_page(request, project_id):
                     error = str(exc)
     checked_ids = set(parameters.getlist('selected'))
     secondary_codes = {(code.book_id, code.pk): str(code) for code in Code.objects.filter(
-        book_id__in={a.round.book_id for a in preview}, pk__in={pk for a in preview for pk in a.secondary})}
+        book_id__in={a.round.book_id for a in preview}, pk__in={pk for a in preview for pk in a.secondary + a.labels})}
     for a in preview:
         a.archive_checked = str(a.pk) in checked_ids
         a.metadata_preview = ' · '.join(f'{key}: {value}' for key, value in a.unit.record.metadata.items())
         a.secondary_display = [secondary_codes[(a.round.book_id, pk)] for pk in a.secondary
                                if (a.round.book_id, pk) in secondary_codes]
+        a.parallel_display = [secondary_codes[(a.round.book_id, pk)] for pk in a.labels
+                              if (a.round.book_id, pk) in secondary_codes]
     def page_url(number):
         query = parameters.copy()
         for name in ('action', 'csrfmiddlewaretoken', 'selected', 'selection', 'limit', 'format'):
             query.pop(name, None)
         query['page'] = number
         return '?' + query.urlencode()
+    from .source_progress import project_rows
     return render(request, 'coding/archive.html', {
+        'source_rows': project_rows(project, request.user, role),
         'project': project, 'role': role, 'search_form': search_form, 'selection_form': selection_form,
         'page': page, 'preview': preview, 'error': error, 'can_full_archive': role in ('owner', 'reviewer'),
         'advanced_open': any(parameters.get(key) for key in ('document', 'round_id', 'code', 'status',

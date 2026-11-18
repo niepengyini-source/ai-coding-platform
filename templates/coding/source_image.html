@@ -1,0 +1,21 @@
+<div class="source-image-tools">
+  <button class="button secondary" type="button" data-source-image-whole>选择整张图片</button>
+  <p class="hint">拖动鼠标或手指框选区域。</p>
+  <details>
+    <summary>按坐标框选</summary>
+    <form data-source-image-form>
+      <p class="hint">以图像左上角为原点，输入百分比。</p>
+      <div class="source-image-coordinates">
+        <label>左侧 <input type="number" name="x" min="0" max="100" step="0.01" value="0" required></label>
+        <label>上侧 <input type="number" name="y" min="0" max="100" step="0.01" value="0" required></label>
+        <label>宽度 <input type="number" name="width" min="0.01" max="100" step="0.01" value="100" required></label>
+        <label>高度 <input type="number" name="height" min="0.01" max="100" step="0.01" value="100" required></label>
+      </div>
+      <button class="button secondary" type="submit">选中区域</button>
+    </form>
+  </details>
+</div>
+<div class="source-image-stage" data-source-image>
+  <img src="{% url 'source_preview' project.id reading_document.id %}" alt="{{ reading_document.name }}" draggable="false" width="{{ reading_document.normalized.image.width }}" height="{{ reading_document.normalized.image.height }}">
+  <svg class="source-image-overlay" viewBox="0 0 10000 10000" preserveAspectRatio="none" aria-hidden="true"><rect data-source-image-selection /></svg>
+</div>

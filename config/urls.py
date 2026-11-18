@@ -9,6 +9,11 @@ from coding import workspace_views as workspace
 from coding import split_views as splitting
 from coding import task_arrangement as arrangement
 from coding import team_guidance as team
+from coding import ai_views
+from coding import document_views as documents
+from coding import document_files
+from coding import source_views as source
+from coding import workbench_tools
 from coding.account_forms import PlatformLoginForm
 
 urlpatterns = [
@@ -29,16 +34,31 @@ urlpatterns = [
     path('p/<int:project_id>/requests/<int:application_id>/review/', a.join_review, name='join_review'),
     path('p/<int:project_id>/materials/', v.materials, name='materials'),
     path('p/<int:project_id>/materials/<int:document_id>/display/', v.source_display, name='source_display'),
+    path('p/<int:project_id>/materials/<int:document_id>/prepare/', documents.prepare, name='document_prepare'),
+    path('p/<int:project_id>/materials/<int:document_id>/original/', document_files.original, name='source_original'),
+    path('p/<int:project_id>/materials/<int:document_id>/preview/', document_files.original,
+         {'preview': True}, name='source_preview'),
+    path('p/<int:project_id>/materials/<int:document_id>/mode/', document_files.display_mode, name='source_mode'),
     path('p/<int:project_id>/units/', v.units, name='units'),
     path('p/<int:project_id>/units/<int:unit_id>/', v.change_unit, name='change_unit'),
     path('p/<int:project_id>/books/new/', v.book_new, name='book_new'),
     path('p/<int:project_id>/books/<int:book_id>/', v.codebook, name='codebook'),
+    path('p/<int:project_id>/books/<int:book_id>/codes/<int:code_id>/references/',
+         v.code_references, name='code_references'),
     path('p/<int:project_id>/books/<int:book_id>/update/', v.book_update, name='book_update'),
     path('p/<int:project_id>/books/<int:book_id>/apply/', v.book_apply, name='book_apply'),
     path('p/<int:project_id>/books/<int:book_id>/import/', f.book_import, name='book_import'),
     path('p/<int:project_id>/books/<int:book_id>/template/<str:file_format>/', f.book_template, name='book_template'),
     path('p/<int:project_id>/exports/', f.exports, name='exports'),
     path('p/<int:project_id>/books/<int:book_id>/freeze/', v.book_freeze, name='book_freeze'),
+    path('p/<int:project_id>/books/<int:book_id>/policy/', workbench_tools.book_policy, name='book_policy'),
+    path('p/<int:project_id>/source-coding/', source.start, name='source_start'),
+    path('api/source-tasks/<int:task_id>/annotations/', source.annotations, name='source_annotations'),
+    path('api/source-tasks/<int:task_id>/complete/', source.complete, name='source_complete'),
+    path('api/source-rounds/<int:round_id>/codes/', source.codes, name='source_codes'),
+    path('source-rounds/<int:round_id>/finish/', source.finish, name='source_finish'),
+    path('source-rounds/<int:round_id>/export/', source.export, name='source_export'),
+    path('source-annotations/<int:annotation_id>/history/', source.history, name='source_history'),
     path('p/<int:project_id>/codes/<int:code_id>/remove/', v.code_remove, name='code_remove'),
     path('p/<int:project_id>/rounds/new/', v.round_new, name='round_new'),
     path('p/<int:project_id>/rounds/units/', arrangement.unit_choices, name='round_unit_choices'),
@@ -59,6 +79,7 @@ urlpatterns = [
     path('r/<int:round_id>/report/', v.reliability, name='reliability'),
     path('r/<int:round_id>/export/<str:mode>/', v.export_round, name='export_round'),
     path('api/assignments/<int:assignment_id>/save/', v.assignment_save, name='assignment_save'),
+    path('api/assignments/<int:assignment_id>/recommend/', ai_views.assignment_recommend, name='assignment_recommend'),
     path('api/assignments/<int:assignment_id>/context/', v.assignment_context, name='assignment_context'),
     path('api/assignments/<int:assignment_id>/split/', v.assignment_split, name='assignment_split'),
     path('api/assignments/<int:assignment_id>/unsplit/', splitting.assignment_unsplit, name='assignment_unsplit'),

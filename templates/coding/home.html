@@ -1,8 +1,8 @@
 {% extends 'base.html' %}{% block title %}工作空间 · AI辅助编码平台{% endblock %}{% block content %}
 <section class="workspace-entry" aria-label="选择工作空间功能">
   <div class="workspace-modules">
-    <a class="workspace-module" href="{% url 'projects' %}"><span class="workspace-module-icon" aria-hidden="true">▤</span><h1>我的项目</h1><span class="workspace-module-arrow" aria-hidden="true">→</span></a>
-    <a class="workspace-module" href="{% url 'join_group' %}"><span class="workspace-module-icon" aria-hidden="true">＋</span><h1>加入小组</h1><span class="workspace-module-arrow" aria-hidden="true">→</span></a>
+    <a class="workspace-module" href="{% url 'projects' %}"><span class="workspace-module-icon">{% include 'coding/workbench_icon.html' with name='projects' %}</span><h1>我的项目</h1><span class="workspace-module-arrow" aria-hidden="true">→</span></a>
+    <a class="workspace-module" href="{% url 'join_group' %}"><span class="workspace-module-icon">{% include 'coding/workbench_icon.html' with name='join' %}</span><h1>加入小组</h1><span class="workspace-module-arrow" aria-hidden="true">→</span></a>
   </div>
   <div class="workspace-help"><a href="{% url 'guide' %}">使用帮助 ↗</a></div>
 </section>

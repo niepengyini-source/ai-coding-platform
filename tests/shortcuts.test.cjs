@@ -1356,6 +1356,20 @@ test('quick-mode Enter preserves native input buttons instead of selecting a cod
   }
 });
 
+test('workbench tool menus suspend coding keys without exiting quick mode',async()=>{
+  const ui=setup({initial:'1'});ui.key('q',{altKey:true});
+  const query=ui.document.querySelector;let menuOpen=true;
+  ui.document.querySelector=selector=>selector.includes('[data-workbench-menu][open]')&&menuOpen?{}:query(selector);
+  for(const [key,modifiers] of [['s',{}],['2',{}],['Enter',{}],['Enter',{altKey:true}],['f',{altKey:true}],['x',{altKey:true}]]) {
+    assert.equal(ui.key(key,modifiers).defaultPrevented,false);
+  }
+  await new Promise(setImmediate);
+  assert.equal(ui.primary.value,'1');assert.equal(ui.changes(),0);assert.equal(ui.nextCalls(),0);
+  assert.equal(ui.skipPrompt.hidden,true);assert.equal(ui.sessionValues.get(ui.modeKey),'on');
+  menuOpen=false;ui.key('s');ui.key('Enter');
+  assert.equal(ui.primary.value,'2');assert.equal(ui.changes(),1);
+});
+
 test('mouse editing notes does not reset a pending quick choice, picker mode or search text',()=>{
   const ui=setup({initial:'1',count:5}); ui.key('q',{altKey:true}); ui.key('2'); ui.searchFor('代码'); ui.list.focus(); ui.key('s'); ui.key('s');
   assert.equal(ui.list.attributes['aria-activedescendant'],'shortcut-code-2');

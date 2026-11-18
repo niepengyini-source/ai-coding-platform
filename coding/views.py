@@ -13,10 +13,12 @@ from django.http import JsonResponse, HttpResponse, Http404
 from django.shortcuts import get_object_or_404, redirect, render
 from django.urls import reverse
 from django.utils import timezone
-from django.views.decorators.http import require_POST
+from django.views.decorators.http import require_GET, require_POST
 from .models import *
 from .forms import ProjectForm, MemberForm, BookForm, CodeForm, SourceDisplayForm
-from .importing import parse_upload, material_sheets, suggested_columns
+from .importing import parse_upload, material_sheets, suggested_columns, MAX_BYTES, MAX_DOCUMENT_BYTES
+from .material_normalization import normalize_material, DOCUMENT_FORMATS
+from .document_reading import reading_context
 from .services import (Conflict, audit, annotation_data, import_records, clone_book, create_round,
                        save_assignment, save_decision, export_annotations, export_final, export_disagreements)
 from .reliability import report_for
@@ -29,6 +31,8 @@ from .context import context_page
 from .source_information import (attach_source_information, available_headers, display_mapping,
                                  mapping_token)
 from .book_updates import begin_update, apply_book_update
+from .code_references import my_code_references
+from .ai_recommendations import workbench_context
 
 
 def access(request, project_id, roles=None):
@@ -204,12 +208,13 @@ def materials(request, project_id):
                 upload = request.FILES.get('file')
                 if not upload:
                     raise ValueError('请选择文件。')
-                if upload.size > 8 * 1024 * 1024:
-                    raise ValueError('单个文件最大8MB。')
+                document_upload = Path(upload.name).suffix.lower() in DOCUMENT_FORMATS
+                if upload.size > (MAX_DOCUMENT_BYTES if document_upload else MAX_BYTES):
+                    raise ValueError('PDF、Word和图片最大80MB，表格和文本最大8MB。')
                 raw = upload.read()
                 # Validate the file before retaining it; an empty Excel cover can be changed below.
                 sheets = material_sheets(upload.name, raw)
-                if not sheets:
+                if not sheets and not document_upload:
                     parse_upload(upload.name, raw)
                 draft = UploadDraft.objects.create(project=project, user=request.user, filename=Path(upload.name).name[:200], raw=raw)
             sheets = material_sheets(draft.filename, bytes(draft.raw))
@@ -217,8 +222,14 @@ def materials(request, project_id):
             if sheet and sheet not in sheets:
                 raise ValueError('所选工作表不存在，请重新选择。')
             preview_error = None
+            normalized = None
             try:
-                headers, rows = parse_upload(draft.filename, bytes(draft.raw), sheet_name=sheet)
+                if Path(draft.filename).suffix.lower() in DOCUMENT_FORMATS:
+                    normalized = normalize_material(draft.filename, bytes(draft.raw))
+                    headers = ['text', 'source_document_id']
+                    rows = [{'text': normalized['text'], 'source_document_id': normalized['source']['sha256']}]
+                else:
+                    headers, rows = parse_upload(draft.filename, bytes(draft.raw), sheet_name=sheet)
             except ValueError as exc:
                 if not sheets or (request.POST.get('draft_id') and request.POST.get('action') != 'preview'):
                     raise
@@ -226,6 +237,8 @@ def materials(request, project_id):
             if request.POST.get('draft_id') and request.POST.get('action') != 'preview':
                 text_col, context_col = request.POST.get('text_column', ''), request.POST.get('context_column', '')
                 try:
+                    if normalized and normalized.get('pages_to_review') and request.POST.get('acknowledge_pdf_pages') != 'yes':
+                        raise ValueError('请确认 PDF 中需要核对的页面后再导入。')
                     if text_col not in headers or (context_col and (context_col not in headers or context_col == text_col)):
                         raise ValueError('请选择有效且不同的文本列和上下文分组列。')
                     display_form = SourceDisplayForm(request.POST, headers=headers, prefix='source')
@@ -233,7 +246,13 @@ def materials(request, project_id):
                         raise ValueError('显示字段包含无效列，请重新选择。')
                     display_values = display_form.cleaned_data if any(key.startswith('source-') for key in request.POST) else None
                     imported = import_records(project, request.user, draft, rows, text_col, context_col, sheet,
-                                              display_mapping=display_values)
+                                              display_mapping=display_values, normalized=normalized)
+                    if normalized:
+                        if normalized['source']['format'] == 'pdf' and not normalized['text']:
+                            messages.success(request, 'PDF 原件已保留。请先完成 OCR 并校对，再导入可编码的文字版本。')
+                            return redirect('materials', project.id)
+                        messages.success(request, '文档已导入，原件已保留，可以开始编码。')
+                        return redirect(reverse('source_start', args=[project.id]) + f'?document={imported.id}')
                     counts = imported.import_counts
                     messages.success(request, f'材料已导入：新增 {counts["units"]} 个编码单元，跳过 {counts["skipped"]} 条完全重复记录。原有材料和编码保持不变。')
                     return redirect('units', project.id)
@@ -247,6 +266,7 @@ def materials(request, project_id):
                 'draft': draft, 'headers': headers, 'preview': [[row.get(h, '')[:200] for h in headers] for row in rows[:5]],
                 'row_count': len(rows), 'default_text': default, 'default_context': context,
                 'sheet_names': sheets, 'sheet_name': sheet, 'error': preview_error,
+                'document_preview': normalized,
                 'display_form': SourceDisplayForm(request.POST if request.POST.get('draft_id') and
                     request.POST.get('action') != 'preview' and any(key.startswith('source-') for key in request.POST)
                     else None, headers=headers, prefix='source')})
@@ -259,8 +279,9 @@ def materials(request, project_id):
         document.display_form = SourceDisplayForm(headers=headers,
             mapping=display_mapping(document, headers), prefix=f'source-{document.pk}')
         document.mapping_token = mapping_token(document)
+    from .source_coding import coding_documents
     return render(request, 'coding/materials.html', {'project': project, 'role': role, 'error': error,
-                                                  'documents': documents})
+                  'documents': documents, 'has_coding_documents': coding_documents(project).exists()})
 
 
 @login_required
@@ -297,7 +318,8 @@ def source_display(request, project_id, document_id):
 @login_required
 def units(request, project_id):
     project, role = access(request, project_id)
-    queryset = Unit.objects.filter(record__document__project=project, active=True).select_related('record__document')
+    queryset = Unit.objects.filter(record__document__project=project, active=True,
+                                   record__document__units_confirmed=True).select_related('record__document')
     query = request.GET.get('q', '')[:200]
     if query:
         queryset = queryset.filter(text__icontains=query)
@@ -354,6 +376,17 @@ def change_unit(request, project_id, unit_id):
     except (ValueError, Conflict, OperationalError) as error:
         messages.error(request, str(error))
     return redirect('units', project.id)
+
+
+@login_required
+@require_GET
+def code_references(request, project_id, book_id, code_id):
+    project, role = access(request, project_id)
+    code = get_object_or_404(Code.objects.select_related('book'), pk=code_id,
+                             book_id=book_id, book__project=project)
+    page = my_code_references(code, request.user, request.GET.get('page'))
+    return render(request, 'coding/code_references.html', {'project': project, 'role': role,
+                  'book': code.book, 'code': code, 'page': page})
 
 
 @login_required
@@ -495,6 +528,9 @@ def code_remove(request, project_id, code_id):
             code = get_object_or_404(Code, pk=code_id, book=book)
             if Code.objects.filter(parent=code).exists():
                 raise ValueError('这条代码有下级代码，请先调整层级。')
+            from .workbench_tools import code_is_used
+            if code_is_used(code):
+                raise ValueError('已有编码记录使用此代码，不能直接删除。请保留旧规则，通过新版本调整。')
             audit(project, request.user, 'code.remove_draft', code,
                   before={f.name: str(getattr(code, f.name)) for f in Code._meta.fields})
             code.delete()
@@ -515,6 +551,9 @@ def round_new(request, project_id):
 @login_required
 def workbench(request, round_id):
     r, role = round_access(request, round_id)
+    if r.sampling.get('source_coding'):
+        from .source_views import workbench as source_workbench
+        return source_workbench(request, round_id)
     mine = coding_assignments(r, request.user)
     paginator = Paginator(mine, 50)
     if request.GET.get('a'):
@@ -608,11 +647,14 @@ def workbench(request, round_id):
     return render(request, 'coding/workbench.html', {'project': r.project, 'role': role, 'round': r,
         'assignment': a, 'annotation': annotation_data(a) if a else {}, 'codes': codes, 'context': context,
         **context_options,
+        **reading_context(a, request.GET),
+        **workbench_context(a, role),
         'annotation_locked': role == 'viewer' or r.state != 'active' or (a is not None and a.status == 'submitted'),
         'editing_flags': history_permissions(a, request.user, role) if a else {},
         'next_url': next_coding_url(a) if a else '',
         'skip_url': skip_url,
-        'can_split': a is not None and r.state == 'active' and role != 'viewer',
+        'can_split': a is not None and r.state == 'active' and role != 'viewer' and not (
+            a.unit.record.document.normalized.get('type') == 'document' and r.kind in ('pilot', 'formal')),
         'can_suggest_split': False,
         'split_restore': restore_options[0] if restore_options else None,
         'tasks': task_page,
@@ -673,6 +715,8 @@ def assignment_split(request, assignment_id):
     a = get_object_or_404(Assignment.objects.select_related('round'), pk=assignment_id, coder=request.user)
     access(request, a.round.project_id, ['owner', 'reviewer', 'coder'])
     try:
+        if a.unit.record.document.normalized.get('type') == 'document' and a.round.kind in ('pilot', 'formal'):
+            raise ValueError('本轮使用统一文档片段，请由负责人在材料准备中修订范围；已有任务保留。')
         data = body_json(request)
         split_personal(a.pk, request.user, data)
         children = list(coding_assignments(a.round, request.user).filter(parent=a).order_by('unit__start'))
@@ -811,7 +855,7 @@ def review(request, round_id):
         'uncertain': False, 'no_code': False, 'note': ''}
     codes = list(r.book.codes.all())
     keys = {c.id: c.key for c in codes}
-    entries = [(a, [keys.get(c, '') for c in a.secondary]) for a in entries]
+    entries = [(a, [keys.get(c, '') for c in (a.labels if r.book.policy == 'parallel' else a.secondary)]) for a in entries]
     return render(request, 'coding/review.html', {'project': r.project, 'role': role, 'round': r,
         'unit': unit, 'entries': entries, 'page': page, 'codes': codes,
         'decision_data': decision_data,
@@ -899,6 +943,11 @@ def reliability(request, round_id):
 def export_round(request, round_id, mode):
     from .exporting import annotation_table, final_table, disagreement_table, export_response, MAX_EXPORT_ROWS
     r, role = round_access(request, round_id)
+    if r.sampling.get('source_coding'):
+        if mode != 'mine':
+            raise PermissionDenied('原文选段是个人编码，请导出自己的选段记录。')
+        from .source_views import export as source_export
+        return source_export(request, round_id)
     if mode == 'mine':
         if r.assignments.filter(coder=request.user, superseded=False).count() > MAX_EXPORT_ROWS:
             return HttpResponse('一次最多导出50000行，请按轮次分批。', status=400)

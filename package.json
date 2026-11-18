@@ -1,0 +1,15 @@
+{
+  "name": "ai-coding-platform-ui",
+  "private": true,
+  "scripts": {
+    "build": "vite build",
+    "test": "node --test tests/*.test.cjs"
+  },
+  "dependencies": {
+    "vue": "3.5.45"
+  },
+  "devDependencies": {
+    "@vitejs/plugin-vue": "6.0.10",
+    "vite": "8.3.7"
+  }
+}

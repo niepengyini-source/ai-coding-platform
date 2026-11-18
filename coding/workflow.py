@@ -23,6 +23,10 @@ def current_coding_round(project, user):
     entries = Assignment.objects.filter(round__project=project, round__state='active', coder=user,
                                         superseded=False).select_related('round').order_by('-updated_at', '-id')
     entry = entries.filter(status='draft').first() or entries.first()
+    from .source_models import SourceCodingTask
+    source = SourceCodingTask.objects.filter(round__project=project, round__state='active', coder=user).select_related('round').order_by('-updated_at', '-id').first()
+    if source and (not entry or source.updated_at > entry.updated_at):
+        return source.round
     return entry.round if entry else None
 
 
@@ -56,8 +60,16 @@ def start_quick_coding(project, actor, book_id, token):
             raise Conflict('同一次开始请求不能改用其他规则，请刷新后重新选择。')
         return replay, False
     book = Codebook.objects.get(project=project, pk=book_id)
+    from .models import Unit
+    if not Unit.objects.filter(record__document__project=project, active=True,
+                               record__document__units_confirmed=True).exists():
+        from .source_coding import coding_documents, start_source_coding
+        if not coding_documents(project).filter(units_confirmed=False).exists():
+            raise ValueError('请先导入材料并确认编码单元。')
+        return start_source_coding(project, actor, book_id)
     existing = Round.objects.filter(project=project, kind='quick', started_by=actor,
-                                    book=book, state='active').order_by('-id').first()
+                                    book=book, state='active').exclude(pk__in=Round.objects.filter(
+                                        sampling__source_coding=True)).order_by('-id').first()
     if existing:
         return existing, False
     r = create_round(project, actor, book.pk, '个人编码 · v' + str(book.version), 'quick',
@@ -139,6 +151,11 @@ def search_history(project, user, cleaned):
         condition = Q(**{'unit__text__' + suffix: query}) | Q(**{'note__' + suffix: query})
         for field in ('primary__key', 'primary__name', 'unit__record__document__name', 'round__name'):
             condition |= Q(**{field + '__' + suffix: query})
+        from .models import Code
+        parallel_ids = list(Code.objects.filter(book__project=project, book__policy='parallel').filter(
+            Q(**{'key__' + suffix: query}) | Q(**{'name__' + suffix: query})).values_list('pk', flat=True))
+        if parallel_ids:
+            condition |= Q(labels__regex=r'(^|[^0-9])(' + '|'.join(str(pk) for pk in parallel_ids) + r')($|[^0-9])')
         if query.isascii() and query.isdecimal() and 0 < len(query) <= 18:
             condition |= Q(unit_id=int(query)) | Q(pk=int(query))
         entries = entries.filter(condition)
@@ -149,7 +166,13 @@ def search_history(project, user, cleaned):
     if cleaned.get('round_id'):
         entries = entries.filter(round=cleaned['round_id'])
     if cleaned.get('code'):
-        entries = entries.filter(Q(primary__key__iexact=cleaned['code']) | Q(primary__name__iexact=cleaned['code']))
+        from .models import Code
+        matching = list(Code.objects.filter(book__project=project, book__policy='parallel').filter(
+            Q(key__iexact=cleaned['code']) | Q(name__iexact=cleaned['code'])).values_list('pk', flat=True))
+        condition = Q(primary__key__iexact=cleaned['code']) | Q(primary__name__iexact=cleaned['code'])
+        if matching:
+            condition |= Q(labels__regex=r'(^|[^0-9])(' + '|'.join(str(pk) for pk in matching) + r')($|[^0-9])')
+        entries = entries.filter(condition)
     if cleaned.get('filename'):
         entries = entries.filter(unit__record__document__name__iexact=cleaned['filename'])
     if cleaned.get('uncertain'):

@@ -7,7 +7,10 @@ from defusedxml.ElementTree import iterparse as safe_iterparse
 from defusedxml.common import DefusedXmlException
 
 MAX_BYTES = 8 * 1024 * 1024
+MAX_DOCUMENT_BYTES = 80 * 1024 * 1024
 MAX_ROWS = 10000
+IMAGE_FORMATS = {'.png': 'PNG', '.jpg': 'JPEG', '.jpeg': 'JPEG'}
+DOCUMENT_FORMATS = {'.pdf', '.docx', *IMAGE_FORMATS}
 
 
 def excel_workbook(raw):
@@ -54,9 +57,14 @@ def suggested_columns(headers):
 
 
 def parse_upload(filename, raw, sheet_name=None):
-    if len(raw) > MAX_BYTES:
-        raise ValueError('单个文件最大8MB，请按材料批次拆分。')
     suffix = Path(filename).suffix.lower()
+    if len(raw) > (MAX_DOCUMENT_BYTES if suffix in DOCUMENT_FORMATS else MAX_BYTES):
+        raise ValueError('PDF、Word和图片单个文件最大80MB；表格和文本单个文件最大8MB，请按材料批次拆分。')
+    if suffix in DOCUMENT_FORMATS:
+        from .material_normalization import normalize_material
+        document = normalize_material(filename, raw)
+        return ['text', 'source_document_id'], [{'text': document['text'],
+            'source_document_id': document['source']['sha256']}]
     if suffix in ('.csv', '.txt'):
         text = None
         for encoding in ('utf-8-sig', 'gb18030'):
@@ -112,7 +120,7 @@ def parse_upload(filename, raw, sheet_name=None):
             if wb is not None:
                 wb.close()
     else:
-        raise ValueError('首版支持CSV、XLSX和TXT。旧版XLS请保留原件并另存为XLSX。')
+        raise ValueError('材料支持CSV、XLSX、TXT、文字型PDF和DOCX。旧版XLS或DOC请保留原件并另存为XLSX或DOCX；扫描件需先完成OCR。')
     if not headers or any(not h.strip() or len(h) > 200 for h in headers) or len(set(headers)) != len(headers):
         raise ValueError('表头不能为空、重复或超过200个字符。')
     if len(headers) > 100:

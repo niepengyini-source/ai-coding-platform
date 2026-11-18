@@ -6,10 +6,11 @@ const path = require('node:path');
 const vm = require('node:vm');
 const source = fs.readFileSync(path.join(__dirname, '../static/navigation.js'), 'utf8');
 
-function setup(current, fallback, {user='7', store=new Map(), storageError=false, blocked=false, traversal=false, noButton=false}={}) {
+function setup(current, fallback, {user='7', store=new Map(), storageError=false, blocked=false, traversal=false, noButton=false, iconReturn=false}={}) {
   const listeners={}, windowListeners={}, attributes={href:fallback}, moves=[];
   const button={textContent:'← 返回上一页',getAttribute:k=>attributes[k],setAttribute:(k,v)=>attributes[k]=v,
     addEventListener:(name,fn)=>listeners[name]=fn};
+  if (iconReturn) {attributes['data-icon-return']='true';button.textContent='<svg>back</svg>';}
   const hint={textContent:''};
   const url=new URL(current,'http://localhost');
   const context={URL,Event,document:{body:{dataset:{navigationUser:user}},getElementById:id=>id==='page-back'?(noButton?null:button):hint},
@@ -61,6 +62,15 @@ test('coding save guard blocks navigation and retains the path stack',()=>{
   const before=store.get('ai-coding-platform:navigation:v1:7');ui.click();
   assert.deepEqual(ui.moves,[]);assert.match(ui.hint.textContent,/未确认保存/);
   assert.equal(store.get('ai-coding-platform:navigation:v1:7'),before);
+});
+
+test('compact workbench return retains its icon and existing unsaved-coding guard',()=>{
+  const ui=setup('/r/4/','/p/2/',{iconReturn:true,blocked:true});
+  assert.equal(ui.button.textContent,'<svg>back</svg>');
+  assert.equal(ui.attributes['aria-label'],'返回上一页');
+  ui.restore();ui.click();
+  assert.deepEqual(ui.moves,[]);assert.match(ui.hint.textContent,/未确认保存/);
+  assert.equal(ui.button.textContent,'<svg>back</svg>');
 });
 test('native Back and bfcache restoration align with the latest per-tab history',()=>{
   const store=new Map();setup('/p/2/','/',{store});const middle=setup('/p/2/units/','/p/2/',{store});

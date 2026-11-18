@@ -89,7 +89,7 @@ class ProjectNavigationGroupTests(TestCase):
                             if link['attrs'].get('href') == f'{base}/']
                 self.assertEqual(len(overview), 1)
                 self.assertFalse(any(parent is panel for parent in overview[0]['parents']))
-                self.assertEqual(overview[0]['text'], self.project.name)
+                self.assertEqual(overview[0]['text'].strip(), self.project.name)
 
     def test_global_entries_and_management_are_not_nested_in_project_group(self):
         self.client.force_login(self.owner)
@@ -160,7 +160,7 @@ class ProjectNavigationGroupTests(TestCase):
                 labels = [link for link in dom.children(group, 'a')
                           if link['attrs'].get('href') == f'/p/{self.project.id}/']
                 self.assertEqual(len(labels), 1)
-                self.assertEqual(labels[0]['text'], name)
+                self.assertEqual(labels[0]['text'].strip(), name)
                 topbar = dom.find(class_name='topbar-label')
                 self.assertEqual(len(topbar), 1)
                 self.assertEqual(topbar[0]['text'], name)

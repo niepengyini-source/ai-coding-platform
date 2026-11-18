@@ -11,7 +11,7 @@ class QuickStartForm(forms.Form):
     def __init__(self, *args, project, **kwargs):
         super().__init__(*args, **kwargs)
         current = project.codebooks.first()
-        self.fields['book_id'].queryset = project.codebooks.filter(pk=current.pk, codes__isnull=False).distinct() if current else Codebook.objects.none()
+        self.fields['book_id'].queryset = project.codebooks.filter(pk=current.pk) if current else Codebook.objects.none()
         self.fields['book_id'].label_from_instance = lambda book: book.title
 
 

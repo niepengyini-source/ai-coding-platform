@@ -67,7 +67,7 @@ def _snapshot(r, assignments):
             'assignments': [{'id': entry.pk, 'unit_id': entry.unit_id, 'coder_id': entry.coder_id,
                              'parent_id': entry.parent_id, 'superseded': entry.superseded,
                              'updated_at': entry.updated_at.isoformat(),
-                             **annotation_data(entry)} for entry in assignments]}
+                             **annotation_data(entry, r.book)} for entry in assignments]}
 
 
 @transaction.atomic
@@ -89,6 +89,10 @@ def apply_book_update(project, actor, book, revision, round_revisions):
         _check_revision(r.revision, round_revisions[r.pk], '编码批次已变化，请刷新后重新选择。')
         if r.state != 'active':
             raise ValueError('只能更新进行中的批次；协商中或已归档的批次保持原规则。')
+        if r.sampling.get('source_coding'):
+            raise ValueError('原文选段保留开始时规则；请从当前编码本开始新工作，已有记录保留。')
+        if r.book.policy != book.policy and 'parallel' in (r.book.policy, book.policy):
+            raise ValueError('已有批次不能自动转换主次代码或并列代码等标签方式；请保留原规则，并让新批次使用新的标签方式。')
     rounds = [r for r in rounds if r.book_id != book.pk]
     if not rounds:
         raise ValueError('所选批次已使用当前编码本，无需更新。')
@@ -103,7 +107,7 @@ def apply_book_update(project, actor, book, revision, round_revisions):
         mapping = _code_mapping(r.book_id, book, events, book_ids)
         entries = list(Assignment.objects.select_for_update().filter(round=r).order_by('pk'))
         for entry in entries:
-            used = ([entry.primary_id] if entry.primary_id else []) + entry.secondary
+            used = entry.labels if book.policy == 'parallel' else ([entry.primary_id] if entry.primary_id else []) + entry.secondary
             if any(type(code_id) is not int or mapping.get(code_id) not in target_ids for code_id in used):
                 raise ValueError('所选批次仍使用已删除或无法对应的代码，请保留相关代码后再更新。')
             if book.policy == 'single' and entry.secondary:
@@ -115,12 +119,13 @@ def apply_book_update(project, actor, book, revision, round_revisions):
         for entry in entries:
             entry.primary_id = mapping[entry.primary_id] if entry.primary_id else None
             entry.secondary = [mapping[code_id] for code_id in entry.secondary]
+            entry.labels = sorted(mapping[code_id] for code_id in entry.labels)
             if entry.status == 'submitted' and not entry.superseded:
                 entry.status = 'draft'
             if entry.revision:
                 entry.revision += 1
             entry.last_token = ''
-        Assignment.objects.bulk_update(entries, ['primary', 'secondary', 'status', 'revision', 'last_token'])
+        Assignment.objects.bulk_update(entries, ['primary', 'secondary', 'labels', 'status', 'revision', 'last_token'])
         r.book = book
         r.cycle += 1
         r.revision += 1
@@ -129,7 +134,7 @@ def apply_book_update(project, actor, book, revision, round_revisions):
         AuditEvent.objects.bulk_create([AuditEvent(project=project, actor=actor,
             action='annotation.rules_update', object_type='Assignment', object_id=str(entry.pk),
             before={**previous[entry.pk], 'book_id': before['book_id'], 'book_version': before['book_version']},
-            after={**annotation_data(entry), 'book_id': book.pk, 'book_version': book.version},
+            after={**annotation_data(entry, book), 'book_id': book.pk, 'book_version': book.version},
             reason='编码规则更新，保留原标签并重新核对。')
             for entry in entries if previous[entry.pk]['revision']])
         audit(project, actor, 'round.book_update', r, before=before, after=_snapshot(r, entries),

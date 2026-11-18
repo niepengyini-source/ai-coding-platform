@@ -9,7 +9,7 @@ from xml.etree import ElementTree as ET
 
 from django.http import HttpResponse
 from django.utils.http import content_disposition_header
-from .models import Assignment, Code, Unit
+from .models import Assignment, Code, Codebook, Unit
 from .services import csv_safe
 
 MAX_EXPORT_ROWS = 50000
@@ -20,6 +20,7 @@ BASE_LABELS = {
     'document_id': '原文件编号', 'document_name': '原文件名称', 'record_position': '原记录行号',
     'span_start': '原文起点', 'span_end': '原文终点', 'coder': '编码员', 'unit_text': '编码原文',
     'primary_code': '主代码', 'secondary_code': '次代码', 'uncertain': '是否不确定', 'no_code': '是否无适用代码',
+    'codes': '并列代码',
     'coder_note': '编码备注', 'status': '提交状态', 'revision': '保存版本', 'metadata_json': '附加信息JSON',
     'decision_id': '定稿编号', 'decision_note': '定稿依据', 'decided_by': '定稿者', 'cycle': '协商周期',
     'round_kind': '轮次类型', 'disagreement_types': '分歧类型', 'resolved': '是否已解决',
@@ -37,6 +38,25 @@ class ExportTable:
     rows: list
     title: str = ''
     policy: str = ''
+
+
+def _parallel_columns(table, entries, codes, policy=None):
+    policies = (dict(Codebook.objects.filter(pk__in={a.round.book_id for a in entries})
+                     .values_list('pk', 'policy')) if policy is None else {})
+    parallel = [policy == 'parallel' if policy is not None else policies[a.round.book_id] == 'parallel'
+                for a in entries]
+    if policy != 'parallel' and not any(parallel):
+        return table
+    index = table.headers.index('primary_code')
+    only_parallel = policy == 'parallel' or all(parallel)
+    headings = ['codes'] if only_parallel else ['primary_code', 'secondary_code', 'codes']
+    headers = table.headers[:index] + headings + table.headers[index + 2:]
+    rows = []
+    for row, entry, is_parallel in zip(table.rows, entries, parallel):
+        selected = '|'.join(codes.get(pk, '') for pk in entry.labels) if is_parallel else ''
+        values = [selected] if only_parallel else row[index:index + 2] + [selected]
+        rows.append(row[:index] + values + row[index + 2:])
+    return ExportTable(headers, rows, table.title, 'parallel' if only_parallel else table.policy)
 
 
 def metadata_columns(units):
@@ -60,7 +80,7 @@ def annotation_table(r, queryset):
                      a.pk, a.parent_id or '', a.superseded]
                     + [a.unit.record.metadata.get(k, '') for k in metadata_keys]
                     + [json.dumps(a.unit.record.metadata, ensure_ascii=False)])
-    return ExportTable(headers + ['meta_' + k for k in metadata_keys] + ['metadata_json'], rows, r.name)
+    return _parallel_columns(ExportTable(headers + ['meta_' + k for k in metadata_keys] + ['metadata_json'], rows, r.name), entries, codes, r.book.policy)
 
 
 def archive_annotation_table(entries, title):
@@ -79,7 +99,7 @@ def archive_annotation_table(entries, title):
              a.uncertain, a.no_code, a.note, a.status, a.revision, timezone.localtime(a.updated_at).isoformat()]
             + [a.unit.record.metadata.get(key, '') for key in metadata_keys]
             + [json.dumps(a.unit.record.metadata, ensure_ascii=False)] for a in entries]
-    return ExportTable(headers + ['meta_' + key for key in metadata_keys] + ['metadata_json'], rows, title)
+    return _parallel_columns(ExportTable(headers + ['meta_' + key for key in metadata_keys] + ['metadata_json'], rows, title), entries, codes)
 
 
 def final_table(r):
@@ -98,7 +118,7 @@ def final_table(r):
                      a.revision, a.uncertain, a.cycle]
                     + [a.unit.record.metadata.get(k, '') for k in metadata_keys]
                     + [json.dumps(a.unit.record.metadata, ensure_ascii=False)])
-    return ExportTable(headers + ['meta_' + k for k in metadata_keys] + ['metadata_json'], rows, r.name)
+    return _parallel_columns(ExportTable(headers + ['meta_' + k for k in metadata_keys] + ['metadata_json'], rows, r.name), entries, codes, r.book.policy)
 
 
 def disagreement_table(r):
@@ -112,6 +132,11 @@ def disagreement_table(r):
                         'secondary_code': [codes.get(c, '') for c in a.secondary], 'uncertain': a.uncertain,
                         'no_code': a.no_code, 'status': a.status, 'coder_note': a.note, 'revision': a.revision}
                        for a in item['entries']]
+        if r.book.policy == 'parallel':
+            for values, entry in zip(independent, item['entries']):
+                values.pop('primary_code')
+                values.pop('secondary_code')
+                values['codes'] = [codes.get(pk, '') for pk in entry.labels]
         unit, decision = item['unit'], item['decision']
         rows.append([r.id, r.kind, r.cycle, r.book.version, unit.id, unit.text, '|'.join(item['types']),
                      item['resolved'], decision.id if decision else '', json.dumps(independent, ensure_ascii=False),
@@ -183,18 +208,24 @@ def xlsx_bytes(headers, rows):
     return output.getvalue()
 
 
-def docx_bytes(headers, rows, title):
+def docx_bytes(headers, rows, title, *, table_widths=()):
     """Small, standards-based OOXML with text only; no macros, fields or external relationships."""
     w = 'http://schemas.openxmlformats.org/wordprocessingml/2006/main'
     ET.register_namespace('w', w)
     document = ET.Element(f'{{{w}}}document')
     body = ET.SubElement(document, f'{{{w}}}body')
-    def paragraph(text='', heading=False):
-        p = ET.SubElement(body, f'{{{w}}}p')
+    def paragraph(text='', heading=False, *, parent=body, bold=False):
+        p = ET.SubElement(parent, f'{{{w}}}p')
         if heading:
             prop = ET.SubElement(p, f'{{{w}}}pPr')
             ET.SubElement(prop, f'{{{w}}}pStyle', {f'{{{w}}}val': 'Title'})
+        if isinstance(text, int):
+            prop = ET.SubElement(p, f'{{{w}}}pPr')
+            ET.SubElement(prop, f'{{{w}}}jc', {f'{{{w}}}val': 'center'})
         run = ET.SubElement(p, f'{{{w}}}r')
+        if bold:
+            prop = ET.SubElement(run, f'{{{w}}}rPr')
+            ET.SubElement(prop, f'{{{w}}}b')
         for index, line in enumerate(str(text).split('\n')):
             if index:
                 ET.SubElement(run, f'{{{w}}}br')
@@ -202,10 +233,38 @@ def docx_bytes(headers, rows, title):
             node.text = line
     paragraph(title, heading=True)
     paragraph()
-    for row in rows:
-        for header, value in zip(headers, row):
-            paragraph(f'{header}: {value}')
-        paragraph()
+    if table_widths:
+        table = ET.SubElement(body, f'{{{w}}}tbl')
+        properties = ET.SubElement(table, f'{{{w}}}tblPr')
+        ET.SubElement(properties, f'{{{w}}}tblW', {f'{{{w}}}w': str(sum(table_widths)), f'{{{w}}}type': 'dxa'})
+        borders = ET.SubElement(properties, f'{{{w}}}tblBorders')
+        for edge in ('top', 'left', 'bottom', 'right', 'insideH', 'insideV'):
+            ET.SubElement(borders, f'{{{w}}}{edge}', {f'{{{w}}}val': 'single', f'{{{w}}}sz': '4', f'{{{w}}}color': 'D9D9D9'})
+        ET.SubElement(properties, f'{{{w}}}tblLayout', {f'{{{w}}}type': 'fixed'})
+        margins = ET.SubElement(properties, f'{{{w}}}tblCellMar')
+        for edge, width in (('top', 80), ('left', 120), ('bottom', 40), ('right', 120)):
+            ET.SubElement(margins, f'{{{w}}}{edge}', {f'{{{w}}}w': str(width), f'{{{w}}}type': 'dxa'})
+        grid = ET.SubElement(table, f'{{{w}}}tblGrid')
+        for width in table_widths:
+            ET.SubElement(grid, f'{{{w}}}gridCol', {f'{{{w}}}w': str(width)})
+        for index, row in enumerate([headers, *rows]):
+            tr = ET.SubElement(table, f'{{{w}}}tr')
+            if index == 0:
+                properties = ET.SubElement(tr, f'{{{w}}}trPr')
+                ET.SubElement(properties, f'{{{w}}}tblHeader')
+            for value, width in zip(row, table_widths):
+                cell = ET.SubElement(tr, f'{{{w}}}tc')
+                properties = ET.SubElement(cell, f'{{{w}}}tcPr')
+                ET.SubElement(properties, f'{{{w}}}tcW', {f'{{{w}}}w': str(width), f'{{{w}}}type': 'dxa'})
+                if index == 0:
+                    ET.SubElement(properties, f'{{{w}}}shd', {f'{{{w}}}val': 'clear', f'{{{w}}}fill': 'EDF2F7'})
+                ET.SubElement(properties, f'{{{w}}}vAlign', {f'{{{w}}}val': 'center'})
+                paragraph(value, parent=cell, bold=index == 0)
+    else:
+        for row in rows:
+            for header, value in zip(headers, row):
+                paragraph(f'{header}: {value}')
+            paragraph()
     section = ET.SubElement(body, f'{{{w}}}sectPr')
     ET.SubElement(section, f'{{{w}}}pgSz', {f'{{{w}}}w': '11906', f'{{{w}}}h': '16838'})
     ET.SubElement(section, f'{{{w}}}pgMar', {f'{{{w}}}top': '1440', f'{{{w}}}bottom': '1440', f'{{{w}}}left': '1440', f'{{{w}}}right': '1440'})
@@ -222,7 +281,8 @@ def docx_bytes(headers, rows, title):
     return output.getvalue()
 
 
-def export_response(table, fields, labels, file_format, filename, *, encoding='utf-8-sig', delimiter=',', is_book=False):
+def export_response(table, fields, labels, file_format, filename, *, encoding='utf-8-sig', delimiter=',', is_book=False,
+                    word_table_widths=()):
     if len(table.rows) > MAX_EXPORT_ROWS:
         raise ValueError('一次最多导出50000行，请按轮次或编码员分别导出。')
     if (any(field not in table.headers for field in fields) or not fields or len(fields) > 300
@@ -256,11 +316,11 @@ def export_response(table, fields, labels, file_format, filename, *, encoding='u
             payload['policy'] = table.policy
         data = json.dumps(payload, ensure_ascii=False, indent=2).encode('utf-8')
         content_type = 'application/json; charset=utf-8'
-    elif file_format == 'docx' and is_book:
-        data = docx_bytes(labels, rows, table.title)
+    elif file_format == 'docx' and (is_book or word_table_widths):
+        data = docx_bytes(labels, rows, table.title, table_widths=word_table_widths)
         content_type = 'application/vnd.openxmlformats-officedocument.wordprocessingml.document'
     else:
-        raise ValueError('不支持这个导出格式；Word仅用于编码本。')
+        raise ValueError('当前结果不支持此导出格式。')
     filename = re.sub(r'[<>:"/\\|?*\x00-\x1f]', '_', filename).strip(' .')[:100] or '编码数据'
     response = HttpResponse(data, content_type=content_type)
     response['Content-Disposition'] = content_disposition_header(True, filename + '.' + file_format)

@@ -38,7 +38,8 @@ class KeyboardSkipTests(TestCase):
         self.assertIsNone(response.context['assignment'].primary_id)
         self.assertContains(response, 'data-shortcut-skip disabled', count=2)
         html = response.content.decode()
-        self.assertLess(html.index('data-shortcut-skip disabled'), html.index('data-primary-fallback'))
+        footer = html.split('class="annotation-footer"', 1)[1].split('</form>', 1)[0]
+        self.assertIn('data-shortcut-skip disabled', footer)
         self.assertIn('data-shortcut-skip disabled', html.split('<dialog ', 1)[1])
         self.assertContains(response, '跳过当前条')
         self.assertContains(response, 'data-shortcut-hint="skip">Alt+Enter</kbd>')

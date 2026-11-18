@@ -1,0 +1,4 @@
+{% if role == 'owner' or role == 'reviewer' %}
+{% if round.sampling.open_coding and not round.book.frozen and round.state == 'active' and not annotation_locked %}
+<details class="workspace-code-add"><summary>新增代码</summary><form class="workspace-code-create" method="post" action="{% url 'source_codes' round.id %}" data-endpoint="{% url 'source_codes' round.id %}" data-book-id="{{ round.book_id }}" data-book-revision="{{ round.book.revision }}">{% csrf_token %}<label>代码名称<input name="name" maxlength="100" required autocomplete="off"></label><label>定义（可稍后完善）<textarea name="definition" rows="2" maxlength="10000"></textarea></label><button class="button secondary" type="submit">添加并使用</button><p class="hint" role="status" data-code-create-status></p></form></details>
+{% endif %}{% endif %}

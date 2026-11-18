@@ -54,11 +54,13 @@ class ProjectHelpTests(TestCase):
         for suffix in ['', 'units/', 'materials/', f'books/{self.book.pk}/', 'history/', 'exports/', 'archive/']:
             with self.subTest(suffix=suffix):
                 response = self.client.get(f'/p/{self.project.pk}/{suffix}')
-                self.assertContains(response, f'href="{self.help}" class="nav-item">☷ 使用帮助')
+                self.assertContains(response, f'href="{self.help}" class="nav-item"')
+                self.assertContains(response, '<span class="nav-text">使用帮助</span>', html=True)
 
     def test_workbench_help_and_settings_share_project_and_round_context(self):
         response = self.client.get(f'/r/{self.r.pk}/')
-        self.assertContains(response, f'href="{self.help}&amp;round={self.r.pk}" class="nav-item">☷ 使用帮助')
+        self.assertContains(response, f'href="{self.help}&amp;round={self.r.pk}" class="nav-item"')
+        self.assertContains(response, '<span class="nav-text">使用帮助</span>', html=True)
         self.assertContains(response, f'href="{self.help}&amp;round={self.r.pk}#shortcuts">设置快捷键')
 
     def test_my_projects_and_join_leave_project_context(self):

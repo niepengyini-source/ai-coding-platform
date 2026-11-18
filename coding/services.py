@@ -22,10 +22,13 @@ def audit(project, actor, action, obj, before=None, after=None, reason=''):
                                     before=before or {}, after=after or {}, reason=reason)
 
 
-def annotation_data(a):
-    return {'primary': a.primary_id, 'secondary': a.secondary, 'uncertain': a.uncertain,
+def annotation_data(a, book=None):
+    data = {'primary': a.primary_id, 'secondary': a.secondary, 'uncertain': a.uncertain,
             'no_code': a.no_code, 'note': a.note, 'revision': a.revision,
             **({'status': a.status} if hasattr(a, 'status') else {'cycle': a.cycle})}
+    if (book or a.round.book).policy == 'parallel':
+        data['labels'] = a.labels
+    return data
 
 
 def validate_labels(book, data, submitting=True):
@@ -37,37 +40,56 @@ def validate_labels(book, data, submitting=True):
         if not isinstance(secondary, list) or any(isinstance(x, bool) for x in secondary):
             raise ValueError
         secondary = [int(x) for x in secondary]
+        labels = data.get('labels', [])
+        if not isinstance(labels, list) or any(type(x) is not int or x < 1 for x in labels):
+            raise ValueError
     except (TypeError, ValueError, KeyError):
         raise ValueError('代码格式不正确。')
     if len(secondary) > 100 or len(set(secondary)) != len(secondary) or primary in secondary:
         raise ValueError('主次代码不能重复。')
     if len(secondary) > 1:
         raise ValueError('次代码只能选择一个。')
+    if len(labels) > 100 or len(set(labels)) != len(labels):
+        raise ValueError('并列代码不能重复，一条记录最多选择100个代码。')
+    if book.policy == 'parallel' and (primary is not None or secondary):
+        raise ValueError('并列代码不区分主次，请在并列代码列表中选择。')
+    if book.policy != 'parallel' and labels:
+        raise ValueError('当前编码本不使用并列代码。')
     for key in ('uncertain', 'no_code'):
         if not isinstance(data.get(key, False), bool):
             raise ValueError('疑点和无代码标记必须为布尔值。')
     no_code, uncertain = data.get('no_code', False), data.get('uncertain', False)
     if not isinstance(data.get('note', ''), str) or len(data.get('note', '')) > 5000:
         raise ValueError('备注最多5000个字符。')
-    if no_code and (primary or secondary):
+    if no_code and (primary or secondary or labels):
         raise ValueError('明确无适用代码时，不同时填写标签。')
-    selected = ([primary] if primary else []) + secondary
+    selected = labels if book.policy == 'parallel' else ([primary] if primary else []) + secondary
     if book.codes.filter(id__in=selected).count() != len(selected):
         raise ValueError('只能使用本轮编码本中的代码。')
     if book.policy == 'single' and secondary:
         raise ValueError('这个项目版本使用单标签，不填写次代码。')
     if secondary and primary is None:
         raise ValueError('填写次代码时需要先选择主代码。')
-    if submitting and not (primary or no_code or uncertain):
+    if submitting and not (selected or no_code or uncertain):
         raise ValueError('提交时请选择代码，或明确无代码，或标记不确定。')
     if uncertain and not data.get('note', '').strip():
         raise ValueError('不确定时请说明原因。')
-    return {'primary_id': primary, 'secondary': secondary, 'no_code': no_code,
-            'uncertain': uncertain, 'note': data.get('note', '').strip()}
+    values = {'primary_id': primary, 'secondary': secondary, 'no_code': no_code,
+              'uncertain': uncertain, 'note': data.get('note', '').strip()}
+    if book.policy == 'parallel':
+        values['labels'] = sorted(labels)
+    return values
+
+
+def selected_code_snapshot(book, annotation):
+    selected = annotation.labels if book.policy == 'parallel' else ([annotation.primary_id] if annotation.primary_id else []) + annotation.secondary
+    return {'book_version': book.version, 'book_revision': book.revision, 'policy': book.policy,
+            'codes': list(book.codes.filter(pk__in=selected).order_by('pk').values('id', 'key', 'name', 'definition'))}
 
 
 @transaction.atomic
-def import_records(project, actor, draft, rows, text_column, context_column, sheet_name='', display_mapping=None):
+def import_records(project, actor, draft, rows, text_column, context_column, sheet_name='', display_mapping=None,
+                   normalized=None):
     Project.objects.select_for_update().get(pk=project.pk)
     digest = hashlib.sha256(bytes(draft.raw)).hexdigest()
     previous = SourceDocument.objects.filter(project=project, sha256=digest, sheet_name__in=['', sheet_name]).first()
@@ -76,9 +98,18 @@ def import_records(project, actor, draft, rows, text_column, context_column, she
         audit(project, actor, 'import.skipped', previous, after=previous.import_counts,
               reason='文件已导入，保留原有材料和编码。')
         return previous
+    from .material_normalization import DOCUMENT_FORMATS, normalize_material, normalize_records
+    is_document = Path(draft.filename).suffix.lower() in DOCUMENT_FORMATS
+    if normalized is None:
+        normalized = (normalize_material(draft.filename, bytes(draft.raw)) if is_document else
+                      normalize_records(draft.filename, bytes(draft.raw), rows, text_column, sheet_name))
+    if is_document and (text_column != 'text' or context_column or len(rows) != 1
+                        or rows[0] != {'text': normalized['text'], 'source_document_id': digest}):
+        raise ValueError('文档预览与原文件无法对应，请重新上传核对后确认。')
     doc = SourceDocument.objects.create(project=project, name=Path(draft.filename).name,
         raw=draft.raw, sha256=digest, text_column=text_column, context_column=context_column, sheet_name=sheet_name,
         display_mapping=display_mapping or {},
+        normalized=normalized, units_confirmed=not is_document,
         import_note='保留原始文件字节和所有原始列；空白文本不生成编码单元；原文和全部原始信息完全相同时保留已有记录。')
     def identity(text, metadata):
         # File names and generated row positions are provenance, not source fields.
@@ -102,8 +133,9 @@ def import_records(project, actor, draft, rows, text_column, context_column, she
         records.append(SourceRecord(document=doc, position=pos, text=row[text_column],
                                     metadata=metadata, context_key=context_key))
     SourceRecord.objects.bulk_create(records)
-    Unit.objects.bulk_create([Unit(record=r, text=r.text, start=0, end=len(r.text)) for r in records if r.text.strip()])
-    doc.import_counts = {'records': len(records), 'units': sum(bool(r.text.strip()) for r in records), 'skipped': skipped}
+    if not is_document:
+        Unit.objects.bulk_create([Unit(record=r, text=r.text, start=0, end=len(r.text)) for r in records if r.text.strip()])
+    doc.import_counts = {'records': len(records), 'units': 0 if is_document else sum(bool(r.text.strip()) for r in records), 'skipped': skipped}
     audit(project, actor, 'import', doc, after={**doc.import_counts, 'text_column': text_column,
                                               'context_column': context_column, 'sheet_name': sheet_name,
                                               'display_mapping': doc.display_mapping})
@@ -141,7 +173,8 @@ def create_round(project, actor, book_id, name, kind, coder_ids, count, seed, di
     if len(coder_ids) != len(set(coder_ids)):
         raise ValueError('编码员不能重复，请核对任务成员。')
     book = Codebook.objects.select_for_update().get(project=project, pk=book_id)
-    if not book.codes.exists():
+    open_coding = kind == 'quick' and not book.codes.exists()
+    if not book.codes.exists() and not open_coding:
         raise ValueError('请先填写至少一个代码及其定义。')
     valid_coders = set(project.memberships.exclude(role='viewer').filter(user__is_active=True).values_list('user_id', flat=True))
     if not coder_ids or not set(coder_ids).issubset(valid_coders):
@@ -154,9 +187,10 @@ def create_round(project, actor, book_id, name, kind, coder_ids, count, seed, di
     visible_ids = sorted(set(Assignment.objects.filter(round__project=project, unit_id__in=[u.id for u in selected])
                              .filter(Q(round__kind='training') | Q(round__state__in=['review', 'closed']))
                              .values_list('unit_id', flat=True)))
-    book.frozen = True
-    book.revision += 1
-    book.save(update_fields=['frozen', 'revision'])
+    if not open_coding:
+        book.frozen = True
+        book.revision += 1
+        book.save(update_fields=['frozen', 'revision'])
     method = {'sequential': '按材料顺序连续选取', 'manual': '手动指定单元'}
     method = (method[selection_mode] if selection_mode in method else
               ('指定单元池＋' if requested_ids else '') + ('分层轮流抽样' if stratify else '随机抽样'))
@@ -171,6 +205,9 @@ def create_round(project, actor, book_id, name, kind, coder_ids, count, seed, di
                   'count': count, 'distribution': distribution, 'double_percent': double_percent,
                   'unit_ids': [u.id for u in selected], 'coder_ids': coder_ids})
     assignments = []
+    if open_coding:
+        r.sampling['open_coding'] = True
+        r.save(update_fields=['sampling'])
     double_count = round(count * double_percent / 100)
     for index, unit in enumerate(selected):
         if distribution == 'all':
@@ -206,14 +243,20 @@ def save_assignment(assignment_id, actor, data):
     if data.get('action') not in ('save', 'submit'):
         raise ValueError('无效保存操作。')
     values = validate_labels(r.book, data, submitting=data['action'] == 'submit')
-    old = annotation_data(a)
+    old = annotation_data(a, r.book)
     for key, value in values.items():
         setattr(a, key, value)
     a.revision += 1
     a.last_token = token
     a.status = 'submitted' if data['action'] == 'submit' else 'draft'
     a.save()
-    audit(r.project, actor, 'annotation.' + data['action'], a, before=old, after=annotation_data(a))
+    after = annotation_data(a, r.book)
+    if r.sampling.get('open_coding'):
+        after['selected_code_snapshot'] = selected_code_snapshot(r.book, a)
+    if data.get('ai_recommendation_id') is not None:
+        from .ai_recommendations import human_reference
+        after.update(human_reference(a, data['ai_recommendation_id']))
+    audit(r.project, actor, 'annotation.' + data['action'], a, before=old, after=after)
     return a
 
 
@@ -231,14 +274,17 @@ def save_decision(r, unit, actor, data):
     values = validate_labels(r.book, data)
     if not values['note']:
         raise ValueError('协商结论需要写明判断依据。')
-    old = annotation_data(current) if current else {}
+    old = annotation_data(current, r.book) if current else {}
     if not current:
         current = Decision(round=r, unit=unit, author=actor)
     for key, value in values.items():
         setattr(current, key, value)
     current.author, current.cycle, current.revision = actor, r.cycle, revision + 1
     current.save()
-    audit(r.project, actor, 'decision.save', current, before=old, after=annotation_data(current), reason=values['note'])
+    after = annotation_data(current, r.book)
+    if r.sampling.get('open_coding'):
+        after['selected_code_snapshot'] = selected_code_snapshot(r.book, current)
+    audit(r.project, actor, 'decision.save', current, before=old, after=after, reason=values['note'])
     return current
 
 
@@ -287,7 +333,8 @@ def project_archive(project):
         files[f'00_raw/document_{doc.id}{extension}'] = bytes(doc.raw)
         add_json(f'00_raw/document_{doc.id}_manifest.json', {'original_name': doc.name, 'sha256': doc.sha256,
                  'text_column': doc.text_column, 'context_column': doc.context_column,
-                 'sheet_name': doc.sheet_name, 'cleaning_note': doc.import_note})
+                 'sheet_name': doc.sheet_name, 'cleaning_note': doc.import_note,
+                 'normalized': doc.normalized, 'units_confirmed': doc.units_confirmed})
     add_json('01_units/records.json', list(SourceRecord.objects.filter(document__project=project).values()))
     add_json('01_units/units.json', list(Unit.objects.filter(record__document__project=project).values()))
     for book in project.codebooks.all():
@@ -309,6 +356,11 @@ def project_archive(project):
                                                         'started_by': r.started_by_id,
                                                         'note': '个人编码记录，不是多人协商定稿或独立一致性评估。' if r.kind == 'quick' else ''})
         add_json(f'{folder}/round_{r.id}_assignments.json', list(r.assignments.values()))
+        if r.sampling.get('source_coding'):
+            from .source_models import SourceAnnotation
+            add_json(f'{folder}/round_{r.id}_source_tasks.json', list(r.source_tasks.values()))
+            add_json(f'{folder}/round_{r.id}_source_annotations.json',
+                     list(SourceAnnotation.objects.filter(task__round=r).values()))
         add_json(f'{folder}/round_{r.id}_reports.json', list(r.reports.values()))
         add_json(f'05_adjudication/round_{r.id}_decisions.json', list(r.decisions.values()))
         from .models import Comment

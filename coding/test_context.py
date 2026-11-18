@@ -28,7 +28,8 @@ class ContextTests(TestCase):
         self.assertContains(response, '↓ 查看下文 +3')
         self.assertContains(response, 'class="annotation-actions"')
         html = response.content.decode()
-        self.assertLess(html.index('data-action="submit_next"'), html.index('data-primary-fallback'))
+        footer = html.split('class="annotation-footer"', 1)[1].split('</form>', 1)[0]
+        self.assertIn('data-action="submit_next"', footer)
 
     def test_more_before_and_after_is_three_at_a_time_in_original_order(self):
         before = self.client.get(self.url, {'direction': 'before', 'cursor': 15}).json()

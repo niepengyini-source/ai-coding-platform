@@ -5,11 +5,11 @@
 .workspace-brand{margin-bottom:0;white-space:nowrap;font-size:19px}
 .workspace-entry{display:flex;flex-direction:column;justify-content:center;min-height:calc(100vh - 160px);width:min(100%,920px);margin:0 auto;padding-bottom:60px}
 .workspace-modules{display:grid;grid-template-columns:repeat(2,minmax(0,1fr));gap:28px}
-.workspace-module{position:relative;min-height:260px;display:flex;flex-direction:column;align-items:center;justify-content:center;background:white;border:1px solid var(--line);border-radius:16px;color:var(--ink);box-shadow:0 6px 24px #1d2a4305;transition:border-color .15s,box-shadow .15s}
-.workspace-module:hover{border-color:#b6c6f0;box-shadow:0 8px 26px #315de010;text-decoration:none}
+.workspace-module{position:relative;min-height:260px;display:flex;flex-direction:column;align-items:center;justify-content:center;background:white;border:1px solid var(--line);border-radius:16px;color:var(--ink);box-shadow:0 6px 24px #23323405;transition:border-color .15s,box-shadow .15s}
+.workspace-module:hover{border-color:var(--accent-line);box-shadow:0 8px 26px #23323412;text-decoration:none}
 .workspace-module:focus-visible{outline:3px solid var(--blue)}
 .workspace-module h1{font-size:29px;margin:18px 0 0}
-.workspace-module-icon{display:grid;place-items:center;width:72px;height:72px;background:#edf2ff;color:var(--blue);border-radius:18px;font-size:40px;line-height:1}
+.workspace-module-icon{display:grid;place-items:center;width:72px;height:72px;background:var(--accent-soft);color:var(--blue);border-radius:18px;font-size:40px;line-height:1}
 .workspace-module-arrow{position:absolute;bottom:23px;right:27px;font-size:23px;color:var(--blue)}
 .workspace-help{display:flex;justify-content:flex-end;padding-top:18px;font-size:13px}
 .workspace-projects{max-width:1140px;margin:28px auto 0}
@@ -24,21 +24,21 @@
 .workspace-project-card p{min-height:0}
 .workspace-project-heading-actions{margin:0}
 .workspace-collaboration{display:flex;flex-wrap:wrap;gap:5px 10px;margin:4px 0 0;font-size:12px;color:var(--muted)}
-.workspace-collaboration strong{color:#51627b;font-weight:500}
+.workspace-collaboration strong{color:var(--muted);font-weight:500}
 .workspace-coding-progress{display:flex;flex-wrap:wrap;align-items:center;justify-content:space-between;gap:8px 12px;margin-top:16px;font-size:13px;color:var(--muted)}
 .workspace-coding-label{min-width:0;overflow-wrap:anywhere}
 .workspace-coding-label small{display:block;font-size:11px;margin-top:3px;color:var(--muted)}
 .workspace-task-waiting{font-size:11px;color:var(--muted);margin:9px 0 0}
 .workspace-coding-count{display:inline-flex;align-items:center;gap:8px;white-space:nowrap;font-size:16px;font-weight:600;font-variant-numeric:tabular-nums;color:var(--ink)}
-.workspace-coding-count.is-complete{color:#13764f}
-.workspace-coding-count strong{padding:3px 8px;border-radius:6px;background:#e5f5ec;font-size:12px}
+.workspace-coding-count.is-complete{color:var(--green)}
+.workspace-coding-count strong{padding:3px 8px;border-radius:6px;background:var(--success-soft);font-size:12px}
 .workspace-project-times{margin:auto 0 0;padding-top:18px;font-size:12px;display:flex;flex-direction:column;gap:7px;color:var(--muted)}
 .workspace-project-times>div{display:flex;flex-wrap:wrap;justify-content:space-between;gap:4px 12px}
 .workspace-project-times dd{margin:0;font-variant-numeric:tabular-nums}
 .workspace-project-actions{display:flex;align-items:center;gap:9px 12px;flex-wrap:wrap;margin-top:18px;padding-top:14px;border-top:1px solid var(--line);font-size:12px}
 .workspace-project-actions .button{font-size:12px;padding:8px 12px}
 .workspace-project-actions>a:last-child{margin-left:auto}
-.workspace-project-actions a:focus-visible,.workspace-project-card h2>a:focus-visible{outline:3px solid #a7bdf7;outline-offset:3px}
+.workspace-project-actions a:focus-visible,.workspace-project-card h2>a:focus-visible{outline:3px solid var(--blue);outline-offset:3px}
 .workspace-auth{width:min(100%,440px);margin:clamp(32px,10vh,110px) auto 32px;padding:30px}
 .workspace-auth h1{font-size:25px;text-align:center;margin-bottom:24px}
 .workspace-auth-tabs{display:flex;justify-content:center;gap:36px;border-bottom:1px solid var(--line);margin-bottom:26px}

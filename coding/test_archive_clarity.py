@@ -69,8 +69,9 @@ class ArchiveClarityTests(TestCase):
                                          {'action': 'full'}).status_code, 403)
 
     def test_sidebar_has_consistent_backup_name(self):
-        self.assertContains(self.client.get(self.workbench),
-                            f'href="/p/{self.project.pk}/archive/">▣ 项目备份与归档')
+        response = self.client.get(self.workbench)
+        self.assertContains(response, f'href="/p/{self.project.pk}/archive/"')
+        self.assertContains(response, '<span class="nav-text">项目备份与归档</span>', html=True)
 
     def test_unfinished_round_waits_for_submission_without_disclosing_answers(self):
         response = self.client.get(self.workbench)

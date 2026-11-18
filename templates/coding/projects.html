@@ -3,19 +3,25 @@
   <div class="page-heading heading-row"><h1>我的项目</h1>{% if memberships %}<div class="button-row workspace-project-heading-actions"><a class="button secondary" href="{% url 'join_group' %}">加入小组</a><a class="button" href="{% url 'project_new' %}">＋ 创建项目</a></div>{% endif %}</div>
   {% if memberships %}<div class="project-grid">
     {% for membership in memberships %}<article class="card project-card workspace-project-card" aria-labelledby="project-title-{{ membership.project.id }}">
-      <div class="project-card-top"><span class="project-icon" aria-hidden="true">▤</span><span class="badge">{% if membership.role == 'owner' %}我负责的{% else %}我加入的 · {{ membership.get_role_display }}{% endif %}</span></div>
-      <h2 id="project-title-{{ membership.project.id }}"><a href="{% url 'project' membership.project.id %}">{{ membership.project.name }}</a></h2>
-      {% if membership.project.goal %}<p>{{ membership.project.goal|truncatechars:100 }}</p>{% endif %}
-      <p class="workspace-collaboration">{% if membership.collaboration_label %}<strong>{{ membership.collaboration_label }}</strong>{% endif %}<span>项目成员 {{ membership.member_count }} 人{% if membership.assignment_coder_count %} · 本轮有任务 {{ membership.assignment_coder_count }} 人{% endif %}</span></p>
+      <div class="project-card-top"><span class="project-icon">{% include 'coding/workbench_icon.html' with name='project' %}</span>
+        <h2 id="project-title-{{ membership.project.id }}"><a href="{% url 'project' membership.project.id %}">{{ membership.project.name }}</a></h2>
+        <span class="badge">{% if membership.role == 'owner' %}我负责的{% else %}我加入的 · {{ membership.get_role_display }}{% endif %}</span></div>
+      <div class="project-summary">{% if membership.project.goal %}<p>{{ membership.project.goal|truncatechars:100 }}</p>{% endif %}
+      <p class="workspace-collaboration">{% if membership.collaboration_label %}<strong>{{ membership.collaboration_label }}</strong>{% endif %}<span>项目成员 {{ membership.member_count }} 人{% if membership.assignment_coder_count %} · 本轮有任务 {{ membership.assignment_coder_count }} 人{% endif %}</span></p></div>
+      <div class="project-status">
       <div class="workspace-coding-progress">
         {% with progress=membership.card_progress %}{% if progress %}
         <span class="workspace-coding-label">{{ progress.label }}<small>{{ progress.name|truncatechars:24 }} · {{ progress.state_label }}</small></span>
         <span class="workspace-coding-count{% if progress.complete %} is-complete{% endif %}">{{ progress.submitted }}/{{ progress.total }}{% if progress.complete %}<strong>已完成</strong>{% endif %}</span>
+        {% if progress.total %}<progress value="{{ progress.submitted }}" max="{{ progress.total }}" aria-label="{{ progress.label }}"></progress>{% endif %}
         {% else %}<span>当前任务</span><span>暂无进行中的任务</span>{% endif %}{% endwith %}
       </div>
       {% if membership.waiting_for_assignment %}<p class="workspace-task-waiting">暂无分配给我的小组任务</p>{% endif %}
+      </div>
       <dl class="workspace-project-times"><div><dt>{{ membership.activity_label }}</dt><dd>{% if membership.last_coded_at %}<time datetime="{{ membership.last_coded_at|date:'c' }}">{{ membership.last_coded_at|date:'Y.m.d H:i' }}</time>{% else %}尚无编码记录{% endif %}</dd></div><div><dt>创建时间</dt><dd><time datetime="{{ membership.project.created_at|date:'c' }}">{{ membership.project.created_at|date:'Y.m.d H:i' }}</time></dd></div><div><dt>最后更新</dt><dd><time datetime="{{ membership.project_updated_at|date:'c' }}">{{ membership.project_updated_at|date:'Y.m.d H:i' }}</time></dd></div></dl>
-      <div class="workspace-project-actions">{% if membership.role != 'viewer' %}{% if membership.team_task_url %}<a class="button" href="{{ membership.team_task_url }}">{{ membership.team_task_label }}</a>{% endif %}<a class="button secondary" href="{{ membership.personal_task_url }}">{{ membership.personal_task_label }}</a>{% endif %}{% if membership.role == 'owner' or membership.role == 'reviewer' %}<a href="{% url 'progress' membership.project.id %}">成员进度</a>{% endif %}<a href="{% url 'project' membership.project.id %}">进入项目 →</a></div>
+      <div class="workspace-project-actions">{% if membership.role != 'viewer' %}<div class="project-task-actions">{% if membership.team_task_url %}<a class="button" href="{{ membership.team_task_url }}">{{ membership.team_task_label }}</a>{% endif %}<a class="button{% if membership.team_task_url %} secondary{% endif %}" href="{{ membership.personal_task_url }}">{{ membership.personal_task_label }}</a></div>{% endif %}
+        <div class="project-links">{% if membership.role == 'owner' or membership.role == 'reviewer' %}<a href="{% url 'progress' membership.project.id %}">成员进度</a>{% endif %}<a href="{% url 'project' membership.project.id %}">进入项目 →</a></div>
+      </div>
     </article>{% endfor %}
   </div>{% else %}<div class="workspace-empty"><p>还没有创建项目，快点创建属于自己的新项目吧。</p><a class="button workspace-create" href="{% url 'project_new' %}">＋ 创建项目</a><a class="button secondary" href="{% url 'join_group' %}">加入小组</a></div>{% endif %}
 </section>

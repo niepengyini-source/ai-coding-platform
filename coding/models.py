@@ -66,7 +66,8 @@ class Codebook(models.Model):
     project = models.ForeignKey(Project, on_delete=models.CASCADE, related_name='codebooks')
     version = models.PositiveIntegerField()
     title = models.CharField(max_length=120, default='初始编码本')
-    policy = models.CharField(max_length=10, choices=[('single', '单标签'), ('multi', '主代码＋可选次代码')], default='multi')
+    policy = models.CharField(max_length=10, choices=[('single', '单标签'), ('multi', '主代码＋可选次代码'),
+                                                   ('parallel', '多个并列代码')], default='multi')
     revision = models.PositiveIntegerField(default=0)
     frozen = models.BooleanField(default=False)
     change_note = models.TextField(blank=True)
@@ -130,6 +131,11 @@ class SourceDocument(models.Model):
     context_column = models.CharField(max_length=200, blank=True)
     sheet_name = models.CharField(max_length=200, blank=True)
     display_mapping = models.JSONField(default=dict, blank=True)
+    normalized = models.JSONField(default=dict, blank=True)
+    workbench_mode = models.CharField(max_length=10, default='auto', choices=[
+        ('auto', '自动推荐'), ('unit', '逐条编码'), ('document', '全文阅读')])
+    units_confirmed = models.BooleanField(default=True)
+    unit_revision = models.PositiveIntegerField(default=0)
     import_note = models.TextField(blank=True)
     created_at = models.DateTimeField(auto_now_add=True)
 
@@ -184,6 +190,7 @@ class Assignment(models.Model):
     superseded = models.BooleanField(default=False)
     primary = models.ForeignKey(Code, null=True, blank=True, on_delete=models.PROTECT)
     secondary = models.JSONField(default=list)
+    labels = models.JSONField(default=list)
     uncertain = models.BooleanField(default=False)
     no_code = models.BooleanField(default=False)
     note = models.TextField(blank=True)
@@ -197,11 +204,23 @@ class Assignment(models.Model):
         indexes = [models.Index(fields=['coder', '-updated_at', '-id'], name='coding_history_by_user')]
 
 
+class AIRecommendation(models.Model):
+    assignment = models.ForeignKey(Assignment, on_delete=models.CASCADE, related_name='ai_recommendations')
+    fingerprint = models.CharField(max_length=64)
+    input_snapshot = models.JSONField()
+    result = models.JSONField()
+    created_at = models.DateTimeField(auto_now_add=True)
+
+    class Meta:
+        constraints = [models.UniqueConstraint(fields=['assignment', 'fingerprint'], name='unique_ai_recommendation')]
+
+
 class Decision(models.Model):
     round = models.ForeignKey(Round, on_delete=models.CASCADE, related_name='decisions')
     unit = models.ForeignKey(Unit, on_delete=models.PROTECT)
     primary = models.ForeignKey(Code, null=True, blank=True, on_delete=models.PROTECT)
     secondary = models.JSONField(default=list)
+    labels = models.JSONField(default=list)
     no_code = models.BooleanField(default=False)
     uncertain = models.BooleanField(default=False)
     note = models.TextField()
@@ -243,3 +262,7 @@ class ReliabilityReport(models.Model):
     data = models.JSONField()
     author = models.ForeignKey(UserRef, on_delete=models.PROTECT)
     created_at = models.DateTimeField(auto_now_add=True)
+
+
+# Optional source annotations are registered with the same Django app.
+from .source_models import SourceCodingTask, SourceAnnotation

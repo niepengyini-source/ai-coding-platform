@@ -26,14 +26,14 @@ MAX_SELECTION = 10000
 
 
 def pool_snapshot(project):
-    ids = list(Unit.objects.filter(record__document__project=project, active=True).values_list('pk', flat=True))
+    ids = list(Unit.objects.filter(record__document__project=project, active=True, record__document__units_confirmed=True).values_list('pk', flat=True))
     digest = hashlib.sha256(','.join(map(str, ids)).encode()).hexdigest()
     return ids, digest
 
 
 def metadata_fields(project):
     fields = set()
-    for row in Unit.objects.filter(record__document__project=project, active=True).values_list('record__metadata', flat=True)[:500]:
+    for row in Unit.objects.filter(record__document__project=project, active=True, record__document__units_confirmed=True).values_list('record__metadata', flat=True)[:500]:
         fields.update(row)
     return sorted(fields)
 

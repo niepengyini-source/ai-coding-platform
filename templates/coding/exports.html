@@ -2,6 +2,7 @@
 {% load static %}
 {% block content %}
 <div class="page-heading"><h1>导出中心</h1></div>
+{% include 'coding/source_export_links.html' %}
 <section class="card">
   <h2>1. 选择要导出的内容</h2>
   <form method="get" action="#export-options">
@@ -53,7 +54,7 @@
           <td><input type="checkbox" name="selected" value="{{ record.key }}" aria-label="选择记录 {{ record.key }}" {% if record.checked %}checked{% endif %}></td>
           <td><small class="block muted">记录 {{ record.key }}{% if record.position %} · 材料第 {{ record.position }} 条{% endif %}{% if record.coder %} · {{ record.coder }}{% endif %}{% if record.status %} · {{ record.status }}{% endif %}</small>
             {% if record.text|length > 180 %}<details class="export-statement"><summary>{{ record.text|truncatechars:180 }}</summary><div>{{ record.text }}</div></details>{% else %}<div class="export-statement">{{ record.text }}</div>{% endif %}
-            <div class="export-code-summary">主代码：{{ record.primary|default:'—' }}{% if record.secondary %}<span>次代码：{{ record.secondary }}</span>{% endif %}</div>
+            <div class="export-code-summary">{% if record.codes %}并列代码：{{ record.codes }}{% else %}主代码：{{ record.primary|default:'—' }}{% if record.secondary %}<span>次代码：{{ record.secondary }}</span>{% endif %}{% endif %}</div>
           </td>
           <td class="export-original">{% if record.metadata|length > 180 %}<details><summary>{{ record.metadata|truncatechars:180 }}</summary><div>{{ record.metadata }}</div></details>{% else %}{{ record.metadata|default:'—' }}{% endif %}</td>
         </tr>{% empty %}<tr><td colspan="3">暂无符合条件的记录，可调整筛选条件。</td></tr>{% endfor %}</tbody>

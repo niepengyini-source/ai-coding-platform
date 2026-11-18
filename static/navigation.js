@@ -52,7 +52,9 @@
     button.setAttribute('href', target);
     button.setAttribute('aria-disabled', String(disabled));
     button.setAttribute('title', disabled ? '当前已在起始页面，没有可返回的上一页。' : '返回刚才浏览的页面；直接打开时返回项目或工作空间。');
-    button.textContent = disabled ? '← 已在首页' : '← 返回上一页';
+    const label = disabled ? '已在首页' : '返回上一页';
+    if (button.getAttribute('data-icon-return') === 'true') button.setAttribute('aria-label', label);
+    else button.textContent = '← ' + label;
   }
   refresh(performance.getEntriesByType('navigation')[0]?.type === 'back_forward');
   window.addEventListener('pageshow', event => { if (event.persisted) refresh(true); });

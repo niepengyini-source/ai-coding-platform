@@ -1,0 +1,90 @@
+{% extends 'base.html' %}{% load static %}
+{% block title %}编码工作台 · {{ project.name }}{% endblock %}
+{% block page_assets %}<link rel="stylesheet" href="{% static 'workbench.css' %}"><link rel="stylesheet" href="{% static 'source_coding.css' %}"><script src="{% static 'workbench/task-queue.js' %}" defer></script><script src="{% static 'source_coding.js' %}" defer></script>{% endblock %}
+{% block workbench_header %}
+<div class="workbench-toolbar">
+  <a id="page-back" class="icon-button workbench-back" data-icon-return="true" href="{% url 'project' project.id %}" aria-label="返回上一页" title="返回上一页">{% include 'coding/workbench_icon.html' with name='back' %}</a>
+  <div class="workbench-context"><h1>编码工作台</h1><p title="{{ project.name }} · {{ round.name }}">{{ project.name }} <span>／ {{ round.name }}</span></p></div>
+  <span class="workbench-progress"><span>材料进度</span><strong data-source-progress>{{ source_data.progress.done }} / {{ source_data.progress.total }}</strong></span>
+  <span class="badge workbench-state {% if round.state == 'closed' %}green{% endif %}" data-source-round-state>{% if round.state == 'closed' %}已结束{% else %}编码中{% endif %}</span>
+  <details class="workbench-menu" data-workbench-menu><summary class="icon-button" aria-label="工作台工具" title="工作台工具">{% include 'coding/workbench_icon.html' with name='more' %}</summary><div class="workbench-menu-panel">
+    {% url 'source_export' round.id as source_export_url %}
+    <a href="{{ source_export_url }}?format=docx">{% include 'coding/workbench_icon.html' with name='export' %}编码汇总（Word）</a>
+    <a href="{{ source_data.urls.export }}">编码明细（Excel）</a>
+    <a href="{{ source_export_url }}?format=csv">编码明细（CSV）</a>
+    <a href="{{ source_export_url }}?format=tsv">编码明细（TSV）</a>
+    <a href="{{ source_export_url }}?format=json">编码明细（JSON）</a>
+    <a href="{% url 'history' project.id %}">{% include 'coding/workbench_icon.html' with name='history' %}我的编码历史</a>
+    <a href="{% url 'codebook' project.id book.id %}">{% include 'coding/workbench_icon.html' with name='rules' %}管理编码本</a>
+    <button type="button" data-source-history-open>{% include 'coding/workbench_icon.html' with name='history' %}当前片段修改历史</button>
+    {% if source_data.urls.finish %}<button type="button" data-source-finish {% if round.state == 'closed' %}disabled{% endif %}>{% include 'coding/workbench_icon.html' with name='archive' %}结束本批编码</button>{% endif %}
+  </div></details><span id="page-back-hint" class="back-hint" role="status" aria-live="polite"></span>
+</div>
+{% endblock %}
+{% block content %}
+<div class="source-coding" data-source-coding>
+  <aside class="source-task-panel" aria-label="材料与我的片段">
+    <div class="source-panel-heading"><h2>我的材料 <span>{{ source_data.progress.total }}</span></h2><button class="icon-button" type="button" data-source-collapse aria-controls="source-task-content" aria-expanded="true" aria-label="收起材料与片段" title="收起材料与片段">{% include 'coding/workbench_icon.html' with name='sidebar' %}</button></div>
+    <div class="source-task-content" id="source-task-content">
+      <nav class="source-material-list" aria-label="我的材料">{% for task in source_tasks %}<a class="source-material {% if task.id == source_task.id %}selected{% endif %}" href="{% url 'workbench' round.id %}?task={{ task.id }}"{% if task.id == source_task.id %} aria-current="page"{% endif %}><span>{{ task.document.name }}</span><small>{% if task.completed %}已完成{% else %}编码中{% endif %}</small></a>{% endfor %}</nav>
+      <div class="source-fragments-heading"><h2>已保存片段 <span data-source-count>0</span></h2><span class="hint">仅显示我的记录</span></div>
+      <ol class="source-annotation-list" data-source-annotation-list aria-label="我的已保存片段"><li class="hint">尚未保存片段。请在正文中划选需要编码的文字。</li></ol>
+    </div>
+  </aside>
+  <section class="source-reader" aria-label="原文阅读与划选">
+    <div class="source-reading-heading"><div><h2>{{ reading_document.name }}</h2><span class="hint">{% if reading_document.normalized.type == 'image' %}原图只读 · 框选后在右侧编码{% else %}原文只读 · 划选后在右侧编码{% endif %}</span></div><div class="button-row"><a class="button secondary" href="{% url 'project' project.id %}#project-rounds">全部编码任务</a>{% if reading_document.normalized.source.format == 'pdf' %}<a class="button secondary" href="{% url 'source_preview' project.id reading_document.id %}#page={{ blocks.0.page|default:1 }}" target="_blank" rel="noopener">查看原版 PDF</a>{% endif %}<a class="button secondary" href="{% url 'source_original' project.id reading_document.id %}" target="_blank" rel="noopener">下载原件</a></div></div>
+    {% if reading_document.normalized.pages_to_review %}<details class="source-pdf-review">
+      <summary>{{ reading_document.normalized.pages_to_review|length }} 页的文字提取结果需核对</summary>
+      <p class="hint">原版保留所有页面。请检查这些页是否含有待编码正文，必要时先做 OCR 并校对。</p>
+      <p>{% for pdf_page in reading_document.normalized.pages_to_review %}<a href="{% url 'source_preview' project.id reading_document.id %}#page={{ pdf_page }}" target="_blank" rel="noopener">原件第 {{ pdf_page }} 页</a>{% if not forloop.last %} · {% endif %}{% endfor %}</p>
+    </details>{% endif %}
+    <div class="source-reading-scroll" data-source-reading tabindex="0" role="region" aria-label="{% if reading_document.normalized.type == 'image' %}原图与编码区域{% else %}文档正文，可划选连续文字{% endif %}">
+    {% if reading_document.normalized.type == 'image' %}{% include 'coding/source_image.html' %}{% else %}
+    {% for block in blocks %}<section class="source-text-block" id="source-block-{{ block.id }}" data-source-block="{{ block.id }}">{% if block.page or block.row %}<small class="source-block-position">{% if block.page %}原件第 {{ block.page }} 页{% else %}原记录 {{ block.row }}{% endif %}</small>{% endif %}{% if block.level %}<h2 data-source-text data-start="{{ block.start }}" data-end="{{ block.end }}">{{ block.text }}</h2>{% else %}<p data-source-text data-start="{{ block.start }}" data-end="{{ block.end }}">{{ block.text }}</p>{% endif %}</section>{% empty %}<p class="hint">当前没有可阅读的文字，请核对导入材料。</p>{% endfor %}
+    {% endif %}
+    </div>
+    {% if reading_document.normalized.type == 'image' %}
+    <p class="source-reading-pagination hint">本批次共保存 <strong data-source-total-count>{{ source_data.progress.annotations }}</strong> 个片段</p>
+    {% else %}
+    <nav class="source-reading-pagination" aria-label="阅读分页">{% if previous_reader_url %}<a href="{{ previous_reader_url }}">← 上一部分</a>{% endif %}<span>{{ reader_page.number }} / {{ reader_page.paginator.num_pages }}</span><span class="hint">共保存 <strong data-source-total-count>{{ source_data.progress.annotations }}</strong> 个片段</span>{% if next_reader_url %}<a href="{{ next_reader_url }}">下一部分 →</a>{% endif %}</nav>
+    {% endif %}
+  </section>
+  <section class="source-coding-panel" aria-label="当前片段编码">
+    <div class="source-panel-heading"><h2>片段编码</h2><span class="badge" data-source-task-state>{% if source_task.completed %}材料已完成{% elif round.state == 'closed' %}只读{% else %}等待划选{% endif %}</span></div>
+    <div class="source-coding-fields">
+      <div class="source-selection-preview"><p class="hint" data-source-selection-hint>{% if reading_document.normalized.type == 'image' %}选择整张图片或框选区域，然后选代码并保存。{% else %}划选一句或连续几段文字，在这里选择代码并保存。{% endif %}</p><blockquote data-source-selection-text hidden></blockquote><small class="hint" data-source-selection-position></small></div>
+      <div class="source-overlap-list" data-source-overlap-list hidden><p class="hint">这里有多个已保存片段，请选择要查看的记录。</p></div>
+      {% if source_data.can_add_codes %}
+      <section class="source-new-code" data-source-new-code aria-labelledby="source-open-code-title">
+        <h3 id="source-open-code-title">????</h3>
+        <form method="post" action="{{ source_data.urls.codes }}" data-source-code-form>
+          {% csrf_token %}
+          <div class="source-new-code-entry">
+            <label class="sr-only" for="source-code-name">?????</label>
+            <input id="source-code-name" name="name" maxlength="100" required autocomplete="off" placeholder="???????">
+            <button class="button secondary" type="submit">????</button>
+          </div>
+          <details><summary>????????</summary>
+            <label class="sr-only" for="source-code-definition">????</label>
+            <textarea id="source-code-definition" name="definition" rows="2" maxlength="10000"></textarea>
+          </details>
+          <p class="hint" data-source-code-status role="status" aria-live="polite"></p>
+        </form>
+      </section>
+      {% endif %}
+      <form method="post" action="{{ source_data.urls.annotations }}" data-source-annotation-form>{% csrf_token %}<fieldset data-source-fields disabled><legend class="sr-only">为当前选中片段编码</legend>
+        <label class="sr-only" for="source-code-search">搜索代码</label><input type="search" id="source-code-search" data-source-code-search placeholder="搜索代码、名称或定义" autocomplete="off">
+        <div class="source-code-list" data-source-code-list></div>
+        <label class="check-line"><input type="checkbox" name="no_code">明确没有适用代码</label>
+        <label class="check-line"><input type="checkbox" name="uncertain">需复核</label>
+        <label for="source-note">备注（可选；需复核时请说明原因）</label><textarea id="source-note" name="note" rows="3" maxlength="5000" placeholder="判断依据或疑点"></textarea>
+      </fieldset></form>
+      <p class="source-empty-code-hint hint" data-source-empty-codes hidden>{% if source_data.can_add_codes %}还没有代码。展开“新增代码”，先命名即可开始。{% else %}项目还没有代码，请联系负责人添加；仍可阅读原文。{% endif %}</p>
+    </div>
+    <footer class="source-coding-actions"><button class="button" type="button" data-source-save disabled>保存当前片段</button><p class="hint source-save-status" data-source-status role="status" aria-live="polite">等待划选</p><button class="text-button" type="button" data-source-reload hidden>刷新并核对最新记录</button><div class="source-completion"><button class="button secondary" type="button" data-source-complete {% if round.state == 'closed' %}disabled{% endif %}>{% if source_task.completed %}继续编辑本份材料{% else %}本份材料编码完成{% endif %}</button><p class="hint">保存片段不移动阅读位置。<kbd>Ctrl+Enter</kbd> 保存</p></div></footer>
+  </section>
+</div>
+<dialog class="source-decision-dialog" data-source-unsaved aria-labelledby="source-unsaved-title"><h2 id="source-unsaved-title">当前片段尚未保存</h2><p>先处理当前修改，再切换到其他内容。</p><p class="hint" data-source-unsaved-status role="status" aria-live="polite"></p><div class="button-row"><button class="button" type="button" data-source-leave-save>保存并继续</button><button class="button secondary" type="button" data-source-leave-discard>放弃修改并继续</button><button class="text-button" type="button" data-source-leave-cancel>继续编辑</button></div></dialog>
+<dialog class="source-history-dialog" data-source-history aria-labelledby="source-history-title"><header><h2 id="source-history-title">片段修改历史</h2><button class="text-button" type="button" data-source-history-close aria-label="关闭片段修改历史">关闭</button></header><div data-source-history-content></div></dialog>
+{{ source_data|json_script:'source-coding-data' }}
+{% endblock %}

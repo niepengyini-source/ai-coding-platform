@@ -27,6 +27,11 @@ def _source_rows(document, positions):
     try:
         if hashlib.sha256(raw).hexdigest() != document.sha256:
             raise ValueError('原文件完整性校验未通过。')
+        if document.normalized.get('type') == 'document':
+            source = {'text': document.normalized['text'], 'source_document_id': document.sha256}
+            if positions != {1}:
+                raise ValueError('文档原文位置不匹配。')
+            return ['原文件', '原件SHA256'], [source], {1: [document.name, document.sha256]}
         headers, rows = parse_upload(document.name, raw, document.sheet_name or None)
         if document.text_column not in headers or any(pos < 1 or pos > len(rows) for pos in positions):
             raise ValueError('原始列或行位置无法对应。')
@@ -216,11 +221,15 @@ def source_export_response(project, table, file_format, filename, *, encoding='u
         for document in documents.iterator(chunk_size=1):
             entries = groups[document.pk]
             headers, normalized, originals = _source_rows(document, {entry['record_position'] for entry in entries})
-            has_codes = 'primary_code' in table.headers
+            has_codes = 'primary_code' in table.headers or 'codes' in table.headers
+            parallel = 'codes' in table.headers and 'primary_code' not in table.headers
             has_decision = 'decision_id' in table.headers
             additions = ['编码片段']
+            is_document = document.normalized.get('type') == 'document'
+            if is_document:
+                additions += ['PDF页码', '章节']
             if has_codes:
-                additions += ['主代码', '次代码', '无适用代码', '复核标记', '编码备注',
+                additions += (['并列代码'] if parallel else ['主代码', '次代码'] + (['并列代码'] if 'codes' in table.headers else [])) + ['无适用代码', '复核标记', '编码备注',
                               '定稿者' if has_decision else '编码员', '保存时间', '记录状态', '轮次']
             additions += ['单元编号', '原记录行号', '原文起点', '原文终点']
             if 'active' in table.headers:
@@ -237,8 +246,13 @@ def source_export_response(project, table, file_format, filename, *, encoding='u
                         != unit.record.metadata):
                     raise ValueError(f'原文件“{document.name}”与导入记录不一致，请改用完整平台数据。')
                 extra = [entry['unit_text']]
+                if is_document:
+                    blocks = [block for block in document.normalized.get('blocks', [])
+                              if block['end'] > unit.start and block['start'] < unit.end]
+                    extra += [', '.join(dict.fromkeys(str(block['page']) for block in blocks if block.get('page'))),
+                              ' / '.join(dict.fromkeys(block['heading'] for block in blocks if block.get('heading')))]
                 if has_codes:
-                    judged = bool(entry.get('revision') and (entry.get('primary_code') or entry.get('no_code')
+                    judged = bool(entry.get('revision') and (entry.get('primary_code') or entry.get('codes') or entry.get('no_code')
                                                            or entry.get('uncertain')))
                     review = '需复核' if judged and entry.get('uncertain') else '已确认' if judged else '未判断'
                     field = 'decision_id' if has_decision else 'assignment_id'
@@ -247,8 +261,8 @@ def source_export_response(project, table, file_format, filename, *, encoding='u
                     state = ('定稿记录' if has_decision else
                              '未保存' if not entry.get('revision') else
                              {'draft': '草稿', 'submitted': '已提交'}.get(entry.get('status'), entry.get('status', '')))
-                    extra += [entry.get('primary_code', ''), entry.get('secondary_code', ''),
-                              ('是' if entry.get('no_code') else '否') if judged else '', review,
+                    extra += ([entry.get('codes', '')] if parallel else [entry.get('primary_code', ''), entry.get('secondary_code', '')] + ([entry.get('codes', '')] if 'codes' in table.headers else []))
+                    extra += [('是' if entry.get('no_code') else '否') if judged else '', review,
                               entry.get('decision_note' if has_decision else 'coder_note', ''),
                               entry.get('decided_by' if has_decision else 'coder', ''), saved_at, state, round_name]
                 extra += [unit.pk, position, unit.start, unit.end]

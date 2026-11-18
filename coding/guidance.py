@@ -21,7 +21,8 @@ def project_guidance(project, user, role, round_=None):
                               (round_.kind == 'quick' and round_.started_by_id != user.pk and not manager)):
         raise PermissionDenied
     book = round_.book if round_ is not None else project.codebooks.first()
-    has_units = Unit.objects.filter(record__document__project=project, active=True).exists()
+    has_units = Unit.objects.filter(record__document__project=project, active=True,
+                                    record__document__units_confirmed=True).exists()
     if round_ is not None:
         assigned = round_.assignments.filter(superseded=False)
         if not manager:
@@ -32,7 +33,7 @@ def project_guidance(project, user, role, round_=None):
         'phase': 1, 'title': '', 'detail': '', 'next_label': '', 'next_url': '',
         'round_id': None, 'round_name': '', 'round_kind': '', 'round_state': '',
         'progress': {'submitted': 0, 'total': 0, 'remaining': 0, 'scope': 'my'},
-        'ready': has_units and has_codes, 'missing': '', 'can_manage': manager,
+        'ready': has_units and bool(book), 'missing': '', 'can_manage': manager,
         'has_units': has_units, 'has_codes': has_codes,
         'book_id': book.pk if book else None, 'has_rounds': project.rounds.exists(),
     }
@@ -48,20 +49,47 @@ def project_guidance(project, user, role, round_=None):
         return result
 
     # A personal batch never becomes another member's recommended team work.
+    from .workflow import current_coding_round
+    source_round = round_ or current_coding_round(project, user)
+    if source_round and source_round.sampling.get('source_coding'):
+        from .source_coding import progress_for
+        progress = progress_for(source_round, user)
+        result.update(ready=True, round_id=source_round.pk, round_name=source_round.name,
+                      round_kind=source_round.kind, round_state=source_round.state,
+                      progress={'submitted': progress['done'], 'total': progress['total'],
+                                'remaining': progress['total'] - progress['done'], 'scope': 'my'})
+        return show(4, '继续原文编码' if source_round.state == 'active' else '回看原文编码',
+                    '在阅读中确定片段、使用或新增代码；材料完成状态由本人确认。',
+                    '打开编码工作台', reverse('workbench', args=[source_round.pk]))
     rounds = project.rounds.filter(~Q(kind='quick') | Q(started_by=user))
     retained = '已有轮次和编码记录仍保留，可从原轮次继续。' if not result['ready'] and rounds.exists() else ''
     if not has_units:
         result['missing'] = 'materials'
+        from .source_coding import coding_documents
+        pending = coding_documents(project).filter(units_confirmed=False).first()
+        if pending:
+            if pending.normalized.get('type') == 'image':
+                return show(2, '图片已导入，可以开始编码',
+                            '可在原图中框选需要编码的区域。',
+                            '开始编码' if writable else '查看原图',
+                            reverse('coding_entry', args=[project.pk]) if writable else
+                            reverse('source_preview', args=[project.pk, pending.pk]))
+            return show(2, '材料已导入，可以开始编码',
+                        '可在阅读中划选片段并逐步建立代码，也可先整理编码单元。',
+                        '开始编码' if writable else '查看文档',
+                        reverse('coding_entry', args=[project.pk]) if writable else
+                        reverse('document_prepare', args=[project.pk, pending.pk]))
         return show(1, '准备编码材料',
                     ('导入材料并检查编码单元。' if manager else '等待负责人导入编码材料。') + retained,
                     '导入材料' if manager else '查看材料',
                     reverse('materials' if manager else 'units', args=[project.pk]))
     if not has_codes:
-        result['missing'] = 'codebook'
-        url = reverse('codebook', args=[project.pk, book.pk]) if book else reverse('project', args=[project.pk])
-        return show(2, '准备编码本',
-                    ('导入编码本或完善代码定义。' if manager else '等待负责人准备编码规则。') + retained,
-                    '准备编码本' if manager else '查看编码规则', url)
+        if book and writable:
+            return show(3, '可以边读边建立编码',
+                        '可导入已有编码本，也可在工作台逐步新增代码。',
+                        '开始编码', reverse('coding_entry', args=[project.pk]))
+        return show(2, '准备编码本', '等待负责人准备编码规则。',
+                    '查看项目', reverse('project', args=[project.pk]))
 
     own_pending = (rounds.filter(state='active', assignments__coder=user,
                                 assignments__superseded=False, assignments__status='draft')

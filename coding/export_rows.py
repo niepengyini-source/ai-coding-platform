@@ -53,6 +53,7 @@ def table_records(table):
         yield {'key': str(values[identity]), 'row': row, 'values': values,
                'text': values.get('unit_text', ''), 'primary': values.get('primary_code', ''),
                'secondary': values.get('secondary_code', ''), 'coder': values.get('coder', ''),
+               'codes': values.get('codes', ''),
                'position': values.get('record_position', ''), 'metadata_values': metadata,
                'metadata': ' · '.join(f'{key}: {value}' for key, value in metadata.items()),
                'status': ('未保存' if not values.get('revision') else
@@ -78,6 +79,7 @@ def filter_records(records, data):
             searchable = [values.get(key, '') for key in ('unit_id', 'assignment_id', 'unit_text',
                           'primary_code', 'coder', 'coder_note', 'document_name', 'record_position')]
             searchable.extend(str(values.get('secondary_code', '')).split('|'))
+            searchable.extend(str(values.get('codes', '')).split('|'))
             searchable.extend(record['metadata_values'].values())
             if not any(matches(value, query) for value in searchable):
                 continue

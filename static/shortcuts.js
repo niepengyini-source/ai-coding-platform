@@ -122,6 +122,9 @@
 
   const form = document.querySelector('.annotation-form');
   const primary = form?.querySelector('[name=primary]');
+  const parallel = form?.dataset.labelPolicy === 'parallel';
+  const labelChoices = parallel ? [...form.querySelectorAll('[name=labels]')] : [];
+  const hasCode = () => parallel ? labelChoices.some(input => input.checked) : !!primary?.value;
   const secondary = form ? [...form.querySelectorAll('[name=secondary]')] : [];
   const toolbar = document.querySelector('[data-shortcut-toolbar]');
   const dialog = document.querySelector('[data-shortcut-dialog]');
@@ -166,7 +169,7 @@
   const codes = codeButtons.length ? codeButtons.map(button => ({
     id:button.dataset.codeChoice, label:button.dataset.label || button.textContent.trim(),
     definition:button.closest('[data-code-card]')?.querySelector('.code-choice-details .preserve')?.textContent.trim() || '', button,
-  })) : primary ? [...primary.options].filter(option => option.value).map(option => ({id:option.value, label:option.textContent.trim(), definition:option.dataset.definition || ''})) : [];
+  })) : primary?.options ? [...primary.options].filter(option => option.value).map(option => ({id:option.value, label:option.textContent.trim(), definition:option.dataset.definition || ''})) : [];
   codes.forEach(code => code.search = `${code.label} ${code.definition}`.toLocaleLowerCase());
   let opened = false, mode = 'primary', filtered = [], active = 0, previousFocus = null, confirmedChoice = '';
   let windowRect = null, pointerWindow = null;
@@ -205,7 +208,7 @@
     pointerWindow = {id:event.pointerId, x:event.clientX, y:event.clientY, rect:{...windowRect}, resizing};
     event.currentTarget?.setPointerCapture?.(event.pointerId);
   }
-  function choiceSignature() { return `${mode}:${filtered[active]?.id || ''}:${primary?.value || ''}:${secondary.find(input => input.checked)?.value || ''}`; }
+  function choiceSignature() { return `${mode}:${filtered[active]?.id || ''}:${primary?.value || ''}:${secondary.find(input => input.checked)?.value || ''}${parallel ? ':' + labelChoices.filter(input => input.checked).map(input => input.value).join(',') : ''}`; }
   function clearConfirmation() {
     confirmedChoice = '';
     if (confirmationStatus) confirmationStatus.hidden = true;
@@ -214,7 +217,7 @@
     return !!primary && !primary.disabled && form.dataset.locked !== 'true' && form.dataset.splitting !== 'true' && form.dataset.splitPreview !== 'true'
       && (form.dataset.busy !== 'true' || form.dataset.savingDraft === 'true');
   }
-  function canOpen(action) { return canEdit() && codes.length > 0 && (action !== 'secondary' || !!primary.value && secondary.some(input => input.value !== primary.value && !input.disabled)); }
+  function canOpen(action) { return canEdit() && codes.length > 0 && (action !== 'secondary' || !parallel && !!primary.value && secondary.some(input => input.value !== primary.value && !input.disabled)); }
   function refreshButtons() {
     if (form) form.dataset.navigationPending = String(navigationPending);
     openButtons.forEach(button => { const disabled = !canOpen(button.dataset.shortcutOpen); if (button.disabled !== disabled) button.disabled = disabled; });
@@ -246,7 +249,7 @@
     if (status) { status.textContent = error.message || '当前编码尚未确认保存，请重试。'; status.className = 'save-status error'; }
   }
   async function advance() {
-    if (navigationPending || !primary.value || !canNavigate()) return;
+    if (navigationPending || !hasCode() || !canNavigate()) return;
     navigationPending = true;
     refreshButtons();
     try {
@@ -295,7 +298,16 @@
     if (!code || !canOpen(mode)) return;
     if (mode === 'primary') {
       if (code.button?.disabled) return;
-      if (primary.value !== code.id || form.querySelector('[name=no_code]').checked) {
+      if (parallel) {
+        const selected = labelChoices.find(input => input.value === code.id);
+        if (!selected || selected.disabled) return;
+        if (code.button) code.button.click();
+        else {
+          selected.checked = !selected.checked;
+          form.querySelector('[name=no_code]').checked = false;
+          selected.dispatchEvent(new Event('change', {bubbles:true}));
+        }
+      } else if (primary.value !== code.id || form.querySelector('[name=no_code]').checked) {
         if (code.button) code.button.click();
         else {
           primary.value = code.id;
@@ -320,7 +332,7 @@
   }
   function confirmChoice(allowAdvance = true) {
     if (allowAdvance && quickMode && confirmedChoice && confirmedChoice === choiceSignature()
-        && document.activeElement !== search && primary.value) {
+        && document.activeElement !== search && hasCode()) {
       advance();
     } else commit();
   }
@@ -332,7 +344,7 @@
     filtered.forEach((code, index) => {
       const option = document.createElement('div');
       option.id = `shortcut-code-${index}`; option.className = 'shortcut-code-option'; option.setAttribute('role', 'option'); option.setAttribute('aria-selected', 'false');
-      const heading = document.createElement('strong'); heading.textContent = code.label; option.append(heading);
+      const heading = document.createElement('strong'); heading.textContent = (parallel && labelChoices.some(input => input.value === code.id && input.checked) ? '已选 · ' : '') + code.label; option.append(heading);
       if (code.definition) { const description = document.createElement('span'); description.textContent = code.definition.length > 180 ? code.definition.slice(0, 180) + '…' : code.definition; option.append(description); }
       option.addEventListener('click', () => { markActive(index); commit(true); }); fragment.append(option);
     });
@@ -341,7 +353,7 @@
   }
   function setPickerMode(action) {
     clearConfirmation();
-    mode = action; title.textContent = action === 'secondary' ? '选择次代码' : '选择主代码';
+    mode = action; title.textContent = parallel ? '选择代码（可多选）' : action === 'secondary' ? '选择次代码' : '选择主代码';
     list.setAttribute('aria-label', title.textContent);
   }
   function open(action) {
@@ -399,10 +411,10 @@
     skipPrompt?.querySelector('[data-shortcut-skip-cancel]')?.addEventListener('click', () => { hideSkipPrompt(); form.focus(); });
     search.addEventListener('input', () => render());
     form.addEventListener('change', event => {
-      const codeChange = event.target === primary || secondary.includes(event.target);
-      if (codeChange) setPickerMode(event.target === primary ? 'primary' : 'secondary');
+      const codeChange = event.target === primary || secondary.includes(event.target) || labelChoices.includes(event.target);
+      if (codeChange) setPickerMode(event.target === primary || labelChoices.includes(event.target) ? 'primary' : 'secondary');
       refreshButtons();
-      if (opened && codeChange) render(mode === 'primary' ? primary.value : secondary.find(input => input.checked)?.value);
+      if (opened && codeChange) render(parallel ? event.target.value : mode === 'primary' ? primary.value : secondary.find(input => input.checked)?.value);
     });
     form.addEventListener('input', refreshButtons);
     if (typeof MutationObserver !== 'undefined') {
@@ -447,7 +459,7 @@
   });
   document.addEventListener('keydown', event => {
     if (event.defaultPrevented || event.isComposing || event.keyCode === 229 || event.repeat || event.getModifierState?.('AltGraph')) return;
-    if (completionDialog?.open) return;
+    if (completionDialog?.open || document.querySelector('.workbench-dialog[open], [data-code-popover]:popover-open, [data-workbench-menu][open]')) return;
     if (recording && document.activeElement === recording) {
       if (event.key === 'Tab') return;
       event.preventDefault();

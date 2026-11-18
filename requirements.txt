@@ -6,3 +6,4 @@ defusedxml==0.7.1
 psycopg[binary]==3.3.6
 krippendorff==0.8.2
 pypdf==6.19.0
+Pillow==13.0.0

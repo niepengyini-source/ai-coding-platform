@@ -11,6 +11,7 @@ DIFFERENCE_NAMES = {
     'primary_difference': '主代码不同',
     'secondary_difference': '次代码不同',
     'primary_secondary_swap': '主次代码互换',
+    'parallel_difference': '并列代码不同',
     'no_code_difference': '对是否适用代码判断不同',
 }
 
@@ -32,6 +33,12 @@ def disagreement_rows(round_obj):
             types.add('uncertain')
         submitted = [a for a in entries if a.status == 'submitted']
         for left, right in combinations(submitted, 2):
+            if round_obj.book.policy == 'parallel':
+                if set(left.labels) != set(right.labels):
+                    types.add('parallel_difference')
+                if left.no_code != right.no_code:
+                    types.add('no_code_difference')
+                continue
             if left.primary_id != right.primary_id:
                 types.add('primary_difference')
                 if has_hierarchy and roots.get(left.primary_id, 0) != roots.get(right.primary_id, 0):

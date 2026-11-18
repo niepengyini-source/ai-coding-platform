@@ -40,7 +40,8 @@ class HeadingCleanupTests(TestCase):
         self.assertNotContains(response, '>项目概览</div>')
 
     def test_workbench_keeps_coding_actions_and_round_status(self):
-        response = self.clean_page(f'/r/{self.r.id}/', self.r.name)
+        response = self.clean_page(f'/r/{self.r.id}/', '编码工作台')
+        self.assertContains(response, self.r.name)
         for text in ['我的编码', '确认并下一条', '保存草稿', '主代码',
                      self.r.get_state_display(), 'data-primary-fallback',
                      '我的编码历史', '导出我的编码']:

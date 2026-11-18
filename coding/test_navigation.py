@@ -62,7 +62,7 @@ class NavigationTests(TestCase):
 
     def test_workbench_returns_to_project_and_review_returns_to_workbench(self):
         self.client.force_login(self.owner)
-        self.assertContains(self.client.get(f'/r/{self.r.id}/'), f'href="/p/{self.project.id}/">← 返回上一页')
+        self.assertContains(self.client.get(f'/r/{self.r.id}/'), f'href="/p/{self.project.id}/" aria-label="返回上一页"')
         Round.objects.filter(pk=self.r.id).update(state='review')
         for path in [f'/r/{self.r.id}/review/', f'/r/{self.r.id}/disagreements/', f'/r/{self.r.id}/report/']:
             self.assertContains(self.client.get(path), f'href="/r/{self.r.id}/">← 返回上一页')

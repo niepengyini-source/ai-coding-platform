@@ -1,0 +1,14 @@
+{% extends 'base.html' %}
+{% block title %}开始编码 · {{ project.name }}{% endblock %}
+{% block content %}
+<div class="page-heading"><h1>开始编码</h1><p>{{ project.name }}</p></div>
+{% if error %}<div class="notice danger" role="alert">{{ error }}</div>{% endif %}
+<section class="card narrow start-confirmation">
+  <h2>{% if source_preview.normalized.type == 'image' %}图片区域编码{% else %}阅读原文，随时划选编码{% endif %}</h2>
+  <p>划选文字或选择图片区域后，在右侧选择代码，再保存。{% if role == 'owner' or role == 'reviewer' %}没有现成代码也可以边阅读边新增。{% endif %}</p>
+  {% if source_preview %}<p class="hint">直接使用这份已导入材料，不需要重新上传或新建项目。已有编码记录会保留。</p>{% endif %}
+  {% if book %}<p class="hint">{{ book.title }} · v{{ book.version }} · {{ book.get_policy_display }}{% if not book.codes.exists %}。还没有代码也可以开始，代码会随工作逐步积累。{% endif %}</p>{% endif %}
+  {% if source_preview %}<p><strong>{{ source_preview.name }}</strong></p>{% if source_preview.normalized.type != 'image' %}<blockquote class="preserve">{{ source_preview.records.first.text|truncatechars:500 }}</blockquote>{% endif %}{% elif documents %}<ul>{% for item in documents %}<li>{{ item.name }}</li>{% endfor %}</ul>{% endif %}
+  <form method="post">{% csrf_token %}{% if token %}<input type="hidden" name="token" value="{{ token }}">{% endif %}{% if document_id %}<input type="hidden" name="document_id" value="{{ document_id }}">{% endif %}{% if book %}<input type="hidden" name="book_id" value="{{ book.id }}">{% endif %}<button class="button" type="submit">{% if resume_round %}继续编码{% else %}开始编码{% endif %} →</button></form>
+</section>
+{% endblock %}

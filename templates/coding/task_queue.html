@@ -1,0 +1,12 @@
+<aside class="card task-panel" aria-label="我的任务">
+  <div data-task-queue-app hidden></div>
+  <div data-task-queue-fallback data-total="{{ mine_total }}">
+    <div class="task-queue-heading"><h2>我的任务 <span class="task-queue-count">{{ mine_total }}</span></h2></div>
+    <nav class="task-list" aria-label="我的编码任务列表">
+      {% for task in tasks %}<a class="task-item {% if task.id == assignment.id %}selected{% endif %}" data-task-id="{{ task.id }}" href="?a={{ task.id }}&amp;page={{ tasks.number }}"{% if task.id == assignment.id %} aria-current="page"{% endif %}>
+        <span class="task-number">#{{ task.unit_id }}</span><span class="task-item-copy"><span class="task-item-text" data-task-text>{{ task.unit.text|truncatechars:60 }}</span><small data-task-status>{% if task.status == 'submitted' %}✓ 已提交{% else %}○ 草稿{% endif %}</small></span>
+      </a>{% endfor %}
+    </nav>
+    <nav class="pagination" aria-label="我的任务分页">{% if tasks.has_previous %}<a href="?page={{ tasks.previous_page_number }}" data-task-previous aria-label="上一页任务">←</a>{% endif %}<span data-task-page>{{ tasks.number }} / {{ tasks.paginator.num_pages }}</span>{% if tasks.has_next %}<a href="?page={{ tasks.next_page_number }}" data-task-next aria-label="下一页任务">→</a>{% endif %}</nav>
+  </div>
+</aside>

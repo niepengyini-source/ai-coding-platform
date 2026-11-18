@@ -6,7 +6,7 @@
 {% else %}
 <section class="card narrow start-confirmation"><h2>确认编码准备</h2>
 <dl class="start-summary"><dt>当前有效材料</dt><dd>{{ unit_count }} 个编码单元</dd><dt>当前编码本</dt><dd>{{ selected_book.title }} · v{{ selected_book.version }}</dd><dt>编码规则</dt><dd>{{ code_count }} 个代码 · {{ selected_book.get_policy_display }}</dd></dl>
-<form method="post">{% csrf_token %}{{ form.non_field_errors }}{{ form.token.errors }}{{ form.token }}{{ form.book_id.errors }}{{ form.book_id }}
+{% if not code_count %}<p class="hint">还没有代码也可以开始。在工作台使用“新增代码”，编码本会随工作逐步形成。</p>{% endif %}<form method="post">{% csrf_token %}{{ form.non_field_errors }}{{ form.token.errors }}{{ form.token }}{{ form.book_id.errors }}{{ form.book_id }}
 {% if resume %}<p>已有进行中的个人编码，本次继续原批次。</p><div class="button-row"><a class="button" href="{% url 'workbench' resume.id %}">继续我的编码 →</a>{% if role == 'owner' or role == 'reviewer' %}<a class="button secondary" href="{% url 'round_new' project.id %}">安排团队编码</a>{% endif %}</div>
 {% else %}<div class="button-row"><button class="button" type="submit">开始个人编码 →</button>{% if role == 'owner' or role == 'reviewer' %}<a class="button secondary" href="{% url 'round_new' project.id %}">安排团队编码</a>{% endif %}</div>{% endif %}</form>
 </section>

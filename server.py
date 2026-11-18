@@ -47,10 +47,14 @@ for address in ['127.0.0.1'] + ([host] if host != '127.0.0.1' else []):
         if probe.connect_ex((address, port)) == 0:
             raise SystemExit('所选端口已有服务。请检查原服务或更换端口，不再启动另一个后台。')
 logging.basicConfig()
+# Only the local tunnel may supply client IP and HTTPS information; LAN clients cannot.
+proxy_options = ({'trusted_proxy': '127.0.0.1', 'trusted_proxy_count': 1,
+                  'trusted_proxy_headers': {'x-forwarded-proto', 'x-forwarded-for'}}
+                 if settings.PLATFORM_PUBLIC_HOST else {})
 try:
     platform_server = create_server(application, listen=' '.join(listeners), threads=8,
-        max_request_body_size=10 * 1024 * 1024, channel_timeout=60,
-        expose_tracebacks=False, clear_untrusted_proxy_headers=True)
+        max_request_body_size=81 * 1024 * 1024, channel_timeout=60,
+        expose_tracebacks=False, clear_untrusted_proxy_headers=True, **proxy_options)
 except OSError:
     raise SystemExit('启动失败：地址可能已改变，或端口已被占用。请先打开原平台地址确认，不要重复启动；检查.env及当前局域网地址。')
 try:
