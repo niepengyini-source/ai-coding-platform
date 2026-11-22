@@ -48,6 +48,8 @@ urlpatterns = [
     path('p/<int:project_id>/books/<int:book_id>/update/', v.book_update, name='book_update'),
     path('p/<int:project_id>/books/<int:book_id>/apply/', v.book_apply, name='book_apply'),
     path('p/<int:project_id>/books/<int:book_id>/import/', f.book_import, name='book_import'),
+    path('p/<int:project_id>/books/<int:book_id>/import/source/<int:document_id>/',
+         f.book_import, name='source_book_import'),
     path('p/<int:project_id>/books/<int:book_id>/template/<str:file_format>/', f.book_template, name='book_template'),
     path('p/<int:project_id>/exports/', f.exports, name='exports'),
     path('p/<int:project_id>/books/<int:book_id>/freeze/', v.book_freeze, name='book_freeze'),

@@ -50,29 +50,44 @@ class WorkspaceTests(TestCase):
         self.assertNotContains(response, '<aside class="sidebar">', status_code=403)
         self.assertNotContains(self.client.get('/login/'), 'href="/accounts/register/"')
 
-    def test_entry_only_has_two_modules_and_small_help(self):
+    def test_entry_shows_only_accessible_projects_without_changing_project_data(self):
+        Membership.objects.create(project=self.group, user=self.owner, role='coder')
         self.client.force_login(self.owner)
+        before = (Project.objects.count(), Membership.objects.count(), AuditEvent.objects.count())
         response = self.client.get('/')
-        self.assertContains(response, 'class="workspace-module"', count=2)
-        self.assertContains(response, 'href="/projects/"')
+        self.assertTemplateUsed(response, 'coding/projects.html')
+        self.assertContains(response, self.project.name)
+        self.assertContains(response, self.group.name)
+        self.assertNotContains(response, 'workspace-modules')
+        self.assertContains(response, 'href="/projects/new/"', count=1)
         self.assertContains(response, 'href="/groups/join/"')
         self.assertContains(response, 'class="workspace-help"')
-        self.assertNotContains(response, self.project.name)
-        self.assertNotContains(response, '创建项目')
-        self.assertNotContains(response, '<aside class="sidebar">')
+        self.assertContains(response, '<aside class="sidebar">')
         self.assertNotContains(response, 'id="page-back"')
+        self.assertEqual(before, (Project.objects.count(), Membership.objects.count(), AuditEvent.objects.count()))
+
+    def test_login_opens_projects_directly_and_preserves_requested_destination(self):
+        response = self.client.post('/login/', {'username': self.owner.username,
+                                              'password': 'Synthetic!Pass58'}, follow=True)
+        self.assertEqual(response.redirect_chain, [('/', 302)])
+        self.assertContains(response, self.project.name)
+        self.assertNotContains(response, self.group.name)
+        self.client.logout()
+        response = self.client.post('/login/?next=/groups/join/', {
+            'username': self.owner.username, 'password': 'Synthetic!Pass58'}, follow=True)
+        self.assertEqual(response.redirect_chain, [('/groups/join/', 302)])
 
     def test_empty_projects_has_only_prominent_create_action(self):
         self.client.force_login(self.other)
         response = self.client.get('/projects/')
-        self.assertContains(response, '还没有创建项目，快点创建属于自己的新项目吧。')
+        self.assertContains(response, '还没有项目')
+        self.assertContains(response, '创建第一个项目')
         self.assertContains(response, 'href="/projects/new/"', count=1)
         self.assertContains(response, 'workspace-create')
         self.assertNotContains(response, 'workspace-modules')
-        self.assertContains(response, '<aside class="sidebar">', count=1)
+        self.assertContains(response, '<aside class="sidebar">')
         self.assertNotContains(response, self.project.name)
-        self.assertContains(response, 'id="page-back"', count=1)
-        self.assertContains(response, 'href="/">← 返回上一页')
+        self.assertNotContains(response, 'id="page-back"')
 
     def test_owned_and_joined_projects_show_creation_and_update_times(self):
         Membership.objects.create(project=self.group, user=self.owner, role='coder')
@@ -86,16 +101,17 @@ class WorkspaceTests(TestCase):
         self.assertContains(response, 'href="/projects/new/"', count=1)
         self.assertNotContains(response, 'workspace-create')
         self.assertNotContains(response, 'workspace-modules')
-        self.assertContains(response, '<aside class="sidebar">', count=1)
-        self.assertContains(response, 'id="page-back"', count=1)
-        self.assertContains(response, 'href="/">← 返回上一页')
+        self.assertContains(response, '<aside class="sidebar">')
+        self.assertNotContains(response, 'id="page-back"')
 
     def test_pending_application_does_not_make_project_visible(self):
         ProjectJoinRequest.objects.create(project=self.group, user=self.owner)
         self.client.force_login(self.owner)
-        response = self.client.get('/projects/')
-        self.assertNotContains(response, self.group.name)
-        self.assertNotContains(response, self.group.goal)
+        for path in ['/', '/projects/']:
+            with self.subTest(path=path):
+                response = self.client.get(path)
+                self.assertNotContains(response, self.group.name)
+                self.assertNotContains(response, self.group.goal)
 
     def test_approved_membership_automatically_appears_in_projects(self):
         application = ProjectJoinRequest.objects.create(project=self.group, user=self.owner)

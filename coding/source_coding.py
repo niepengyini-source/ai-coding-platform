@@ -138,11 +138,18 @@ def start_source_coding(project, actor, book_id, document_ids=None):
 @transaction.atomic
 def add_workspace_code(round_id, actor, data):
     round_obj = _lock_round(round_id, actor)
+    code = _add_workspace_code(round_obj, actor, data)
+    book = round_obj.book
+    return {'code': code_data(code), 'codes': [code_data(c) for c in book.codes.all()],
+            'book_id': book.pk, 'book_revision': book.revision}
+
+
+def _add_workspace_code(round_obj, actor, data, *, keep_existing_definition=False):
     if _member(round_obj.project_id, actor) not in ('owner', 'reviewer'):
         raise PermissionDenied
     if round_obj.state != 'active' or not (round_obj.sampling.get('open_coding') or round_obj.sampling.get('source_coding')):
         raise ValueError('本批次使用固定规则，请在编码本管理中更新规则。')
-    book = Codebook.objects.select_for_update().get(pk=round_obj.book_id)
+    book = round_obj.book
     if _integer(data.get('book_id'), '编码本编号') != book.pk or _integer(data.get('revision'), '编码本版本') != book.revision:
         raise Conflict('编码规则已变化，输入仍保留，请刷新代码列表后再试。')
     if book.frozen:
@@ -155,7 +162,7 @@ def add_workspace_code(round_id, actor, data):
     name, definition = name.strip(), definition.strip()
     existing = book.codes.filter(name__iexact=name).first()
     if existing:
-        if existing.definition != definition:
+        if existing.definition != definition and (definition or not keep_existing_definition):
             raise ValueError('已有相同名称的代码，请复用或在编码本中编辑定义。')
         code = existing
     else:
@@ -168,8 +175,7 @@ def add_workspace_code(round_id, actor, data):
         book.save(update_fields=['revision'])
         audit(round_obj.project, actor, 'code.add_during_coding', code,
               after={'book_id': book.pk, **code_data(code)})
-    return {'code': code_data(code), 'codes': [code_data(c) for c in book.codes.all()],
-            'book_id': book.pk, 'book_revision': book.revision}
+    return code
 
 
 def _image_region(value):
@@ -222,6 +228,28 @@ def save_source_annotation(task_id, actor, data):
         raise Conflict('该范围已有更新，请先打开自己已有的编码记录，再修改保存。')
     if annotation is None and task.annotations.count() >= MAX_ANNOTATIONS:
         raise ValueError('单份材料最多保存10000个片段，请先整理或拆分材料。')
+    new_code = data.get('new_code')
+    if new_code is not None:
+        if not isinstance(new_code, dict):
+            raise ValueError('新代码格式不正确。')
+        code = _add_workspace_code(round_obj, actor,
+            {**new_code, 'book_id': round_obj.book_id, 'revision': data.get('book_revision')},
+            keep_existing_definition=True)
+        data = data.copy()
+        if data.get('no_code') is True:
+            data['no_code'] = False
+        if round_obj.book.policy == 'parallel':
+            labels = data.get('labels', [])
+            if not isinstance(labels, list):
+                raise ValueError('代码格式不正确。')
+            if code.pk not in labels:
+                data['labels'] = [*labels, code.pk]
+        else:
+            data['primary'] = code.pk
+            secondary = data.get('secondary')
+            if (round_obj.book.policy == 'multi' and isinstance(secondary, list) and len(secondary) == 1
+                    and _integer(secondary[0], '次代码') == code.pk):
+                data['secondary'] = []
     values = validate_labels(round_obj.book, data, submitting=True)
     before = source_annotation_data(annotation) if annotation else {}
     if annotation is None:

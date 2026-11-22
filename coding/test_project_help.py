@@ -71,10 +71,10 @@ class ProjectHelpTests(TestCase):
         for path in ['/projects/', '/groups/join/']:
             with self.subTest(path=path):
                 response = self.client.get(path)
-                sidebar = self.sidebar(response)
-                self.assertEqual(sidebar.count('class="nav-item"'), 3)
-                self.assertNotIn('当前项目', sidebar)
-                self.assertIn('href="/guide/"', sidebar)
+                self.assertContains(response, 'href="/guide/"')
+                self.assertNotContains(response, '当前项目')
+                self.assertNotContains(response, 'href="/guide/?project=')
+                self.assertEqual(self.sidebar(response).count('class="nav-item"'), 3)
 
     def test_context_does_not_leak_between_project_tabs_or_global_help(self):
         second = Project.objects.create(name='第二个虚构标签页', owner=self.owner)

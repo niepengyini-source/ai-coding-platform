@@ -19,25 +19,34 @@ class ProjectsSidebarTests(TestCase):
         self.client.force_login(self.member)
 
     def assert_project_navigation(self, response):
-        self.assertContains(response, '<aside class="sidebar">', count=1)
+        self.assertContains(response, '<aside class="sidebar">')
+        self.assertContains(response, 'aria-label="主要导航"')
+        self.assertContains(response, 'data-sidebar-toggle')
+        self.assertContains(response, 'href="/projects/" class="nav-item" aria-current="page"')
         self.assertNotContains(response, 'workspace-layout')
-        self.assertContains(response, 'id="page-back"', count=1)
-        self.assertContains(response, 'href="/">← 返回上一页')
-        sidebar = response.content.decode().split('<aside class="sidebar">', 1)[1].split('</aside>', 1)[0]
-        for path, label in [('/projects/', '我的项目'), ('/groups/join/', '加入小组'),
-                            ('/guide/', '使用帮助')]:
+        self.assertNotContains(response, '<div class="nav-label">当前项目</div>')
+        self.assertNotContains(response, 'id="page-back"')
+        for path, label in [('/groups/join/', '用邀请码加入'), ('/guide/', '使用帮助')]:
             with self.subTest(path=path):
-                self.assertIn(f'href="{path}" class="nav-item"', sidebar)
-                self.assertIn(label, sidebar)
+                self.assertContains(response, f'href="{path}"')
+                self.assertContains(response, label)
 
-    def test_empty_projects_keeps_sidebar_back_button_and_create_action(self):
+    def test_project_list_keeps_sidebar_without_project_items(self):
+        owned = Project.objects.create(name='虚构自建项目', owner=self.member)
+        Membership.objects.create(project=owned, user=self.member, role='owner')
+        response = self.client.get('/projects/')
+        self.assertContains(response, '<aside class="sidebar">')
+        self.assertContains(response, '我的项目')
+        self.assertNotContains(response, 'id="project-navigation"')
+
+    def test_empty_projects_keeps_create_join_and_help_actions(self):
         response = self.client.get('/projects/')
         self.assert_project_navigation(response)
-        self.assertContains(response, '还没有创建项目，快点创建属于自己的新项目吧。')
+        self.assertContains(response, '还没有项目')
         self.assertContains(response, 'workspace-create')
         self.assertContains(response, 'href="/projects/new/"', count=1)
 
-    def test_owned_and_joined_project_cards_keep_sidebar_and_timestamps(self):
+    def test_owned_and_joined_project_cards_keep_details_and_timestamps(self):
         owned = Project.objects.create(name='虚构自建项目', owner=self.member)
         Membership.objects.create(project=owned, user=self.member, role='owner')
         Membership.objects.create(project=self.private, user=self.member, role='coder')
@@ -47,8 +56,9 @@ class ProjectsSidebarTests(TestCase):
         self.assertContains(response, self.private.name)
         self.assertContains(response, '创建时间', count=2)
         self.assertContains(response, '最后更新', count=2)
+        self.assertContains(response, '<details class="workspace-project-details">', count=2)
 
-    def test_sidebar_does_not_expose_unjoined_or_pending_projects(self):
+    def test_project_list_does_not_expose_unjoined_or_pending_projects(self):
         ProjectJoinRequest.objects.create(project=self.private, user=self.member)
         response = self.client.get('/projects/')
         self.assert_project_navigation(response)
@@ -57,12 +67,10 @@ class ProjectsSidebarTests(TestCase):
         self.assertNotContains(response, f'href="/p/{self.private.id}/"')
         self.assertEqual(self.client.get(f'/p/{self.private.id}/').status_code, 404)
 
-    def test_function_selection_remains_without_sidebar(self):
+    def test_home_shows_same_project_list_with_sidebar(self):
         response = self.client.get('/')
-        self.assertNotContains(response, '<aside class="sidebar">')
-        self.assertContains(response, 'workspace-layout')
-        self.assertContains(response, 'class="workspace-module"', count=2)
-        self.assertNotContains(response, 'id="page-back"')
+        self.assert_project_navigation(response)
+        self.assertTemplateUsed(response, 'coding/projects.html')
 
     def test_public_auth_pages_remain_without_sidebar(self):
         self.client.logout()

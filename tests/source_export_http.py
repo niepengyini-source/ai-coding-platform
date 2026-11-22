@@ -92,7 +92,7 @@ def main():
     journey.check('source speaker facts remain available in workbench', '虚构学生甲' in page and '需复核' in page)
     reference_task = r.assignments.get(unit__record__document=source, unit__record__position=2)
     page = session.page(f'/r/{r.pk}/?a={reference_task.pk}', project)
-    current_material = re.search(r'<section class="material-panel"><article class="card">(.*?)</article>', page, re.S)
+    current_material = re.search(r'id="reading-current">(.*?)<blockquote id="current-unit-text"', page, re.S)
     reference = re.search(r'<details class="source-reference">(.*?)</details>', current_material[1], re.S) if current_material else None
     journey.check('current unit resolves the exact same-group source message rather than its preview', reference is not None
                   and '引用消息 · 原记录 1' in reference[1] and text in reference[1]

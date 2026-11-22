@@ -102,7 +102,7 @@ const {chromium} = require('playwright');
     await page.locator('.document-coding-entry').click();
     await page.waitForURL(/\/source-coding\//);
     check('Existing material opens directly without reimport',Number(new URL(page.url()).searchParams.get('document'))===doc);
-    await page.getByRole('button',{name:'开始编码 →',exact:true}).click();
+    await page.getByRole('button',{name:'使用当前编码本开始编码',exact:true}).click();
     await page.waitForURL(/\/r\/\d+\//);
     await page.locator('[data-source-text]').nth(1).scrollIntoViewIfNeeded();
     await page.evaluate(()=>{

@@ -8,18 +8,18 @@
 <link rel="stylesheet" href="{% static 'source_information.css' %}">
 <link rel="stylesheet" href="{% static 'app.css' %}"><link rel="stylesheet" href="{% static 'controls.css' %}"><link rel="stylesheet" href="{% static 'workspace.css' %}"><link rel="stylesheet" href="{% static 'journey.css' %}"><script src="{% static 'app.js' %}" defer></script><script src="{% static 'code_picker.js' %}" defer></script><script src="{% static 'splitting.js' %}" defer></script><script src="{% static 'navigation.js' %}" defer></script><script src="{% static 'file_tools.js' %}" defer></script><script src="{% static 'workflow.js' %}" defer></script><script src="{% static 'archiving.js' %}" defer></script><script src="{% static 'shortcuts.js' %}" defer></script><script src="{% static 'task_navigation.js' %}" defer></script><link rel="stylesheet" href="{% static 'platform.css' %}"><script src="{% static 'shell.js' %}" defer></script>{% block page_assets %}{% endblock %}</head>
 {% with layout_page=request.resolver_match.url_name %}{% project_workflow as workflow %}<body class="{% if not user.is_authenticated or workspace_entry or layout_page == 'login' or layout_page == 'register' %}workspace-layout{% endif %}{% if layout_page == 'workbench' %} coding-workbench{% else %} platform-page{% endif %}" data-navigation-user="{% if user.is_authenticated %}{{ user.pk }}{% else %}anonymous{% endif %}">
-{% if user.is_authenticated and not workspace_entry and layout_page != 'login' and layout_page != 'register' %}
+{% if user.is_authenticated and layout_page != 'login' and layout_page != 'register' %}
 <aside class="sidebar">
   <a class="brand" aria-label="AI辅助编码平台" href="{% url 'home' %}"><span class="brand-symbol">A</span><span>AI辅助编码平台<small>协作 · 判断 · 追溯</small></span></a>
   <div class="nav-label">工作空间</div>
-  <nav aria-label="主要导航"><a href="{% url 'projects' %}" class="nav-item">{% include 'coding/nav_label.html' with icon='projects' label='我的项目' %}</a>
+  <nav aria-label="主要导航"><a href="{% url 'projects' %}" class="nav-item"{% if layout_page == 'home' or layout_page == 'projects' %} aria-current="page"{% endif %}>{% include 'coding/nav_label.html' with icon='projects' label='我的项目' %}</a>
   {% if user.is_authenticated %}<a href="{% url 'join_group' %}" class="nav-item">{% include 'coding/nav_label.html' with icon='join' label='加入小组' %}</a>{% endif %}
   {% if project %}<div class="nav-label">当前项目</div>
   <div class="nav-project-group" data-project-nav data-project-id="{{ project.id }}">
   <div class="nav-project-heading"><a class="nav-item" href="{% url 'project' project.id %}">{% include 'coding/nav_label.html' with icon='project' label=project.name %}</a><button class="nav-project-toggle" type="button" data-project-nav-toggle aria-controls="project-navigation" aria-expanded="false" aria-label="展开项目功能"><span class="nav-project-chevron" aria-hidden="true">▶</span><span data-project-nav-label>展开项目功能</span></button></div>
   <div id="project-navigation" class="nav-project-children" hidden>
   <a class="nav-item"{% if layout_page == 'materials' or layout_page == 'document_prepare' %} aria-current="location"{% endif %} href="{% url 'units' project.id %}">{% include 'coding/nav_label.html' with icon='materials' label='材料' %}</a>
-  {% with latest=project.codebooks.first %}{% if latest %}<a class="nav-item"{% if layout_page == 'code_references' or layout_page == 'book_import' or layout_page == 'codebook' and book.pk != latest.pk %} aria-current="location"{% endif %} href="{% url 'codebook' project.id latest.id %}">{% include 'coding/nav_label.html' with icon='rules' label='编码规则' %}</a>{% endif %}{% endwith %}
+  {% with latest=project.codebooks.first %}{% if latest %}<a class="nav-item"{% if layout_page == 'code_references' or layout_page == 'book_import' or layout_page == 'source_book_import' or layout_page == 'codebook' and book.pk != latest.pk %} aria-current="location"{% endif %} href="{% url 'codebook' project.id latest.id %}">{% include 'coding/nav_label.html' with icon='rules' label='编码规则' %}</a>{% endif %}{% endwith %}
   {% if role != 'viewer' %}<a class="nav-item" href="{% url 'coding_entry' project.id %}">{% include 'coding/nav_label.html' with icon='code' label='开始 / 继续编码' %}</a>{% endif %}
   <a class="nav-item"{% if layout_page == 'history_detail' or layout_page == 'history_reopen' %} aria-current="location"{% endif %} href="{% url 'history' project.id %}">{% include 'coding/nav_label.html' with icon='history' label='历史记录' %}</a>
   <a class="nav-item" href="{% url 'exports' project.id %}">{% include 'coding/nav_label.html' with icon='export' label='导出' %}</a>
@@ -41,10 +41,10 @@
 {% else %}
   <button class="sidebar-toggle icon-button" type="button" data-sidebar-toggle aria-controls="workspace-sidebar" aria-label="收起侧边导航" hidden>{% include 'coding/workbench_icon.html' with name='sidebar' %}</button>
   {% if layout_page == 'workbench' %}{% block workbench_header %}{% endblock %}{% else %}
-  <nav class="page-return" aria-label="页面返回">
+  {% if layout_page != 'home' and layout_page != 'projects' %}<nav class="page-return" aria-label="页面返回">
 {% if navigation_requires_password %}<button class="back-button" type="button" disabled>← 返回上一页</button><span class="hint">请先完成首次密码设置，再进入工作空间。</span>
 {% else %}<a id="page-back" class="back-button" href="{% if project and book and code and layout_page == 'code_references' %}{% url 'codebook' project.pk book.pk %}#code-{{ code.pk }}{% elif project and layout_page == 'history_detail' or project and layout_page == 'history_reopen' %}{% url 'history' project.id %}{% elif round and layout_page != 'workbench' %}{% url 'workbench' round.id %}{% elif project and layout_page != 'project' %}{% url 'project' project.id %}{% elif project or layout_page == 'project_new' %}{% url 'projects' %}{% else %}{% url 'home' %}{% endif %}">← 返回上一页</a>{% endif %}
-<span id="page-back-hint" class="back-hint" role="status" aria-live="polite"></span></nav>
+<span id="page-back-hint" class="back-hint" role="status" aria-live="polite"></span></nav>{% endif %}
   <div class="topbar-label">{% if project %}{{ project.name }}{% else %}研究工作空间{% endif %}</div>
   {% endif %}
 {% endif %}

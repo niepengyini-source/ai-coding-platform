@@ -278,4 +278,4 @@ class ProjectCollaborationCardTests(TestCase):
         self.assertEqual((Assignment.objects.count(), Round.objects.count(), AuditEvent.objects.count()), before)
         self.assertNotContains(response, self.other.name)
         self.assertContains(response, '<aside class="sidebar">')
-        self.assertContains(response, 'id="page-back"')
+        self.assertNotContains(response, 'id="page-back"')

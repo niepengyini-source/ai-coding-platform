@@ -70,6 +70,7 @@ request('/login/', {'username': fixture['username'], 'password': fixture['passwo
 url = f'/p/{fixture["project"]}/exports/'
 html, _ = request(url + '?' + urlencode({'target': 'mine', 'round': fixture['round']}))
 first = ExportForm(html.decode())
+first.values['layout'] = 'platform'
 assert len(first.checks) == 25, 'Prepare at least 26 fictional owner assignments before running this check.'
 first_id = first.checks[3]
 html, headers = request(url, dict(first.values, row_page='2', selected=[first_id], selection='selected'))

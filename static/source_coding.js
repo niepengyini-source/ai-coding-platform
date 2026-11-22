@@ -32,7 +32,7 @@
     return JSON.stringify({start: value.start, end: value.end, text: normalizeText(value.text), region: value.region || null,
       primary: value.primary || null, secondary: [...(value.secondary || [])].sort((a, b) => a - b),
       labels: [...(value.labels || [])].sort((a, b) => a - b), uncertain: !!value.uncertain,
-      no_code: !!value.no_code, note: value.note || ''});
+      no_code: !!value.no_code, note: value.note || '', new_code: value.new_code || null});
   }
   const helpers = {points, normalizeText, sameRange, segments, fingerprint};
   if (typeof module !== 'undefined' && module.exports) module.exports = helpers;
@@ -54,16 +54,25 @@
   let listLimit = 50, activeLoad = 0, guardResolve = null, suppressMarkClickUntil = 0;
   const scrollKey = `source-reading:${data.task.id}:${new URLSearchParams(location.search).get('reader_page') || 1}`;
   const field = name => form.querySelector(`[name=${name}]`);
+  const codeName = field('new_code_name'), codeDefinition = field('new_code_definition');
+  const codeSearch = find('[data-source-code-search]'), emptyCodeHint = find('[data-source-empty-codes]');
+  const clearNewCode = () => { if (codeName) { codeName.value = ''; codeDefinition.value = ''; } };
   const locked = () => data.round.state !== 'active' || data.task.completed;
   const setStatus = (message, kind = '') => { status.textContent = message; status.dataset.kind = kind; };
   const idToken = () => globalThis.crypto?.randomUUID ? crypto.randomUUID() : `${Date.now()}-${Math.random().toString(36).slice(2)}`;
-  const state = () => ({...selected, primary: Number(form.querySelector('[name=primary]:checked')?.value) || null,
-    secondary: [...form.querySelectorAll('[name=secondary]:checked')].map(input => Number(input.value)),
-    labels: [...form.querySelectorAll('[name=labels]:checked')].map(input => Number(input.value)),
-    no_code: field('no_code').checked, uncertain: field('uncertain').checked, note: field('note').value});
+  function state() {
+    const name = codeName?.value.trim() || '', definition = codeDefinition?.value.trim() || '';
+    return {...selected, primary: Number(form.querySelector('[name=primary]:checked')?.value) || null,
+      secondary: [...form.querySelectorAll('[name=secondary]:checked')].map(input => Number(input.value)),
+      labels: [...form.querySelectorAll('[name=labels]:checked')].map(input => Number(input.value)),
+      no_code: field('no_code').checked, uncertain: field('uncertain').checked, note: field('note').value,
+      new_code: name || definition ? {name, definition} : null};
+  }
   function canSave() {
     if (!selected || busy || locked() || conflicted) return false;
-    const value = state(), hasCode = !!value.primary || value.labels.length > 0;
+    const value = state();
+    if (value.new_code && !value.new_code.name) return false;
+    const hasCode = !!value.new_code || !!value.primary || value.labels.length > 0;
     return (hasCode || value.no_code || value.uncertain) && (!value.uncertain || !!value.note.trim());
   }
   function refreshControls() {
@@ -72,7 +81,6 @@
     completeButton.disabled = busy || data.round.state !== 'active';
     completeButton.textContent = data.task.completed ? '继续编辑本份材料' : '本份材料编码完成';
     find('[data-source-task-state]').textContent = data.round.state !== 'active' ? '只读' : data.task.completed ? '材料已完成' : selected ? (dirty ? '未保存' : '已保存') : '等待划选';
-    root.querySelectorAll('[data-source-code-form] :is(input,textarea,button)').forEach(input => { input.disabled = busy || locked(); });
     imageStage?.classList.toggle('source-image-locked', busy || locked());
     find('[data-source-image-whole]')?.toggleAttribute('disabled', busy || locked());
     find('[data-source-image-form] button')?.toggleAttribute('disabled', busy || locked());
@@ -81,6 +89,9 @@
   }
   function renderCodes(value = selected || {}) {
     codeContainer.replaceChildren();
+    codeSearch.hidden = !data.codes.length;
+    if (emptyCodeHint) emptyCodeHint.hidden = data.codes.length > 0;
+    if (!data.codes.length) return;
     const policy = data.book.policy;
     const groups = policy === 'parallel' ? [['labels', '选择代码（可多选）', 'checkbox']] :
       [['primary', '选择代码', 'radio'], ...(policy === 'multi' ? [['secondary', '次代码（可选）', 'radio']] : [])];
@@ -107,11 +118,10 @@
       }
       codeContainer.append(group);
     });
-    find('[data-source-empty-codes]').hidden = data.codes.length > 0;
     filterCodes();
   }
   function filterCodes() {
-    const query = find('[data-source-code-search]').value.trim().toLocaleLowerCase();
+    const query = codeSearch.value.trim().toLocaleLowerCase();
     codeContainer.querySelectorAll('[data-code-search]').forEach(label => { label.hidden = !!query && !label.dataset.codeSearch.includes(query); });
   }
   function codeSummary(annotation) {
@@ -167,6 +177,7 @@
   }
   function displaySelection(value, saved = false) {
     selected = {...value}; conflicted = false; pending = null;
+    clearNewCode();
     renderCodes(value); field('no_code').checked = !!value.no_code; field('uncertain').checked = !!value.uncertain; field('note').value = value.note || '';
     find('[data-source-selection-hint]').textContent = saved ? (locked() ? '已保存的片段，只读查看。' : '已保存的片段，可继续修改。') : '当前选中的片段';
     const preview = find('[data-source-selection-text]'); preview.hidden = false; preview.textContent = selectionName(value);
@@ -174,19 +185,21 @@
     const position = value.region ? regionKeys.map((key, index) => `${labels[index]} ${Number((value.region[key] * 100).toFixed(2))}%`).join(' · ') : `${points(value.text).length} 个字符`;
     find('[data-source-selection-position]').textContent = `${position}${value.id ? ' · 已保存' : ' · 新片段'}`;
     baseline = saved ? fingerprint(state()) : ''; dirty = !saved;
-    setStatus(saved ? '已保存。修改后请再次保存。' : '请选择代码并保存。', saved ? 'success' : '');
+    const instruction = codeName ? '请选择已有代码或写入新代码，再保存。' : '请选择代码并保存。';
+    setStatus(saved ? '已保存。修改后请再次保存。' : instruction, saved ? 'success' : '');
     find('[data-source-overlap-list]').hidden = true;
     refreshControls(); renderList(); renderHighlights();
   }
   function edited() {
     if (!selected || busy || locked()) return;
     const value = state();
-    if (value.primary) form.querySelectorAll('[name=secondary]').forEach(input => {
+    form.querySelectorAll('[name=secondary]').forEach(input => {
       input.disabled = Number(input.value) === value.primary;
       if (input.disabled) input.checked = false;
     });
     dirty = fingerprint(state()) !== baseline;
-    setStatus(dirty ? '有未保存的修改。' : '已保存。', dirty ? '' : 'success'); refreshControls();
+    const message = value.new_code && !value.new_code.name ? '请先写入代码。' : '有未保存的修改。';
+    setStatus(dirty ? message : '已保存。', dirty ? '' : 'success'); refreshControls();
   }
   async function request(url, payload) {
     let response;
@@ -200,13 +213,17 @@
   }
   async function saveSelection() {
     if (!selected || busy || locked() || conflicted) return false;
-    if (!canSave()) { setStatus('请选择代码，或标记无适用代码／需复核；需复核时请填写原因。', 'error'); return false; }
+    if (!canSave()) {
+      const message = state().new_code?.name === '' ? '请先写入代码。' : '请选择或写入代码，或标记无适用代码／需复核；需复核时请填写原因。';
+      setStatus(message, 'error'); return false;
+    }
     const value = state(), key = fingerprint(value);
     if (!pending || pending.key !== key) pending = {key, payload: {...value, revision: selected.revision || 0,
-      book_id: data.book.id, token: idToken()}};
+      book_id: data.book.id, book_revision: data.book.revision, token: idToken()}};
     busy = true; refreshControls(); setStatus('正在保存…');
     try {
       const result = await request(data.urls.annotations, pending.payload), annotation = result.annotation;
+      if (result.codes) { data.codes = result.codes; data.book.revision = result.book_revision; codeSearch.value = ''; }
       const index = data.annotations.findIndex(item => item.id === annotation.id);
       if (index < 0) data.annotations.push(annotation); else data.annotations[index] = annotation;
       busy = false; progress(result); displaySelection(annotation, true);
@@ -232,7 +249,7 @@
     if (selected?.id) displaySelection(selected, true);
     else {
       selected = null; baseline = ''; dirty = false; pending = null; conflicted = false;
-      renderCodes(); field('no_code').checked = false; field('uncertain').checked = false; field('note').value = '';
+      clearNewCode(); renderCodes(); field('no_code').checked = false; field('uncertain').checked = false; field('note').value = '';
       find('[data-source-selection-text]').hidden = true; find('[data-source-selection-position]').textContent = '';
       find('[data-source-selection-hint]').textContent = selectionHint;
       setStatus('等待划选'); refreshControls(); renderList(); renderHighlights();
@@ -334,13 +351,25 @@
     if (mark && (event.key === 'Enter' || event.key === ' ')) { event.preventDefault(); showOverlaps(mark); }
   });
   form.addEventListener('submit', event => { event.preventDefault(); saveSelection(); });
-  form.addEventListener('input', event => { if (!event.target.matches('[data-source-code-search]')) edited(); });
+  form.addEventListener('input', event => {
+    if (event.target === codeSearch) return;
+    if (event.target === codeName && codeName.value.trim()) {
+      field('no_code').checked = false;
+      const primary = form.querySelector('[name=primary]:checked');
+      if (primary) primary.checked = false;
+    }
+    edited();
+  });
   form.addEventListener('change', event => {
-    if (event.target.name === 'no_code' && field('no_code').checked) form.querySelectorAll('[name=primary],[name=secondary],[name=labels]').forEach(input => { input.checked = false; });
+    if (event.target.name === 'no_code' && field('no_code').checked) {
+      clearNewCode();
+      form.querySelectorAll('[name=primary],[name=secondary],[name=labels]').forEach(input => { input.checked = false; });
+    }
+    if (event.target.name === 'primary' && event.target.checked) clearNewCode();
     if (['primary', 'secondary', 'labels'].includes(event.target.name) && event.target.checked) field('no_code').checked = false;
     edited();
   });
-  find('[data-source-code-search]').addEventListener('input', filterCodes);
+  codeSearch.addEventListener('input', filterCodes);
   saveButton.addEventListener('click', saveSelection);
   reloadButton.addEventListener('click', () => {
     if (window.confirm('刷新会放弃当前未保存的修改。请先复制需要保留的内容，确定刷新核对？')) { dirty = false; location.reload(); }
@@ -357,24 +386,6 @@
     busy = true; refreshControls();
     try { const result = await request(data.urls.finish, {revision: data.round.revision}); data.round = result.round; document.querySelector('[data-source-round-state]').textContent = '已结束'; setStatus('本批编码已结束，记录只读保留。', 'success'); }
     catch (error) { setStatus(error.message, 'error'); }
-    finally { busy = false; refreshControls(); }
-  });
-  find('[data-source-code-form]')?.addEventListener('submit', async event => {
-    event.preventDefault();
-    if (busy || locked()) return;
-    const codeForm = event.currentTarget, name = codeForm.querySelector('[name=name]'), definition = codeForm.querySelector('[name=definition]');
-    const message = codeForm.querySelector('[data-source-code-status]');
-    if (!name.value.trim()) { name.focus(); return; }
-    const current = selected ? state() : null; busy = true; refreshControls(); message.textContent = '正在新增…';
-    try {
-      const result = await request(data.urls.codes, {name: name.value.trim(), definition: definition.value, book_id: data.book.id, revision: data.book.revision});
-      data.codes = result.codes; data.book.id = result.book_id || data.book.id; data.book.revision = result.book_revision;
-      if (current) { current.no_code = false; field('no_code').checked = false; if (data.book.policy === 'parallel') current.labels = [...new Set([...(current.labels || []), result.code.id])]; else current.primary = result.code.id; }
-      find('[data-source-code-search]').value = '';
-      renderCodes(current || {}); name.value = ''; definition.value = '';
-      message.textContent = current ? '已选中此代码，请保存当前片段。' : '代码已可使用，请先选择片段。';
-      busy = false; if (current) edited();
-    } catch (error) { message.textContent = error.message; }
     finally { busy = false; refreshControls(); }
   });
   document.querySelector('[data-source-history-close]').addEventListener('click', () => history.close());

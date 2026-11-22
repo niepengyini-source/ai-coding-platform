@@ -1,11 +1,12 @@
 {% extends 'base.html' %}{% block content %}
-<div class="page-heading"><h1>核对材料</h1><p>{{ draft.filename }}{% if document_preview %} · 文档全文核对{% else %} · {{ row_count }} 行 · 前5行预览{% endif %}</p></div>
-{% if workflow.preparation %}{% include 'coding/workflow_hint.html' %}{% endif %}
+<div class="task-page import-page">
+<div class="page-heading heading-row"><div><h1>核对材料</h1><p>{{ draft.filename }}{% if document_preview %} · 原文预览{% else %} · {{ row_count }} 行 · 前5行预览{% endif %}</p></div><a href="{{ request.path }}">更换文件</a></div>
+{% if workflow.preparation %}{% include 'coding/workflow_hint.html' with compact=True %}{% endif %}
 {% if sheet_names|length > 1 %}<section class="card"><form method="post">{% csrf_token %}<input type="hidden" name="draft_id" value="{{ draft.id }}"><input type="hidden" name="action" value="preview"><label for="sheet-name">工作表</label><div class="button-row"><select id="sheet-name" name="sheet_name">{% for s in sheet_names %}<option {% if s == sheet_name %}selected{% endif %}>{{ s }}</option>{% endfor %}</select><button class="button secondary" type="submit">查看这张表</button></div></form></section>{% endif %}
 {% if error %}<div class="notice danger" role="alert">{{ error }}{% if sheet_names|length > 1 %} 可在上方切换工作表。{% endif %}</div>{% endif %}
 {% if document_preview %}
 <section class="card">
-  <h2>{% if document_preview.type == 'image' %}图片区域编码{% elif document_preview.text %}推荐使用全文阅读工作台{% else %}核对提取结果{% endif %}</h2>
+  <h2>{% if document_preview.type == 'image' %}图片区域编码{% else %}核对原文{% endif %}</h2>
   {% for warning in document_preview.warnings %}<p class="hint">{{ warning }}</p>{% endfor %}
   {% if document_preview.type == 'image' %}<p>图片尺寸 {{ document_preview.image.width }} × {{ document_preview.image.height }} 像素。确认后可框选区域编码。</p>{% endif %}
   {% if document_preview.pages_to_review %}
@@ -16,7 +17,7 @@
     <p class="hint">请与原件核对。扫描页若含有需要编码的文字，应先做 OCR 并校对。</p>
   {% endif %}
   {% if document_preview.text %}
-    <details><summary>查看提取文字（前5000字）</summary><p class="preserve">{{ document_preview.text|slice:':5000' }}</p></details>
+    <div class="document-import-preview preserve" role="region" aria-label="提取文字预览" tabindex="0">{{ document_preview.text|slice:':5000' }}</div><p class="hint">预览前5000字，确认后可阅读原文并划选片段。</p>
   {% elif document_preview.pages_to_review %}
     <p>本文件可以保留原版供查看。需要逐句编码时，请导入经校对的 OCR 版。</p>
   {% endif %}
@@ -26,5 +27,9 @@
 <section class="card"><form method="post">{% csrf_token %}<input type="hidden" name="draft_id" value="{{ draft.id }}"><input type="hidden" name="sheet_name" value="{{ sheet_name }}">
 {% if document_preview %}<input type="hidden" name="text_column" value="text"><input type="hidden" name="context_column" value="">
 {% if document_preview.pages_to_review %}<p><label><input type="checkbox" name="acknowledge_pdf_pages" value="yes" required> 我已了解这些页面的文字可能缺失，确认保留原件并导入。</label></p>{% endif %}
-{% else %}<div class="two-columns"><p><label for="text-column">编码文本列</label><select id="text-column" name="text_column" required><option value="">请选择文本列</option>{% for h in headers %}<option {% if h == default_text %}selected{% endif %}>{{ h }}</option>{% endfor %}</select></p><p><label for="context-column">对话 / 访谈编号列</label><select id="context-column" name="context_column"><option value="">不分组：整个文件作为上下文</option>{% for h in headers %}<option {% if h == default_context %}selected{% endif %}>{{ h }}</option>{% endfor %}</select></p></div>{% endif %}<details class="source-display-fields"><summary>发言信息显示（可选）</summary><div class="source-display-grid">{% for field in display_form %}<p>{{ field.label_tag }}{{ field }}{{ field.errors }}</p>{% endfor %}</div><p class="hint">只展示原始字段；引用不代表接收对象，无对应信息可留空。</p></details><p class="hint">其他列全部保留。原文与全部附加信息相同才跳过，不会覆盖已有编码。</p><button class="button" type="submit">确认导入</button></form></section><section class="card"><div class="table-wrap"><table><thead><tr>{% for h in headers %}<th>{{ h }}</th>{% endfor %}</tr></thead><tbody>{% for row in preview %}<tr>{% for cell in row %}<td>{{ cell }}</td>{% endfor %}</tr>{% endfor %}</tbody></table></div></section>{% endif %}
+{% else %}<div class="two-columns"><p><label for="text-column">编码文本列</label><select id="text-column" name="text_column" required><option value="">请选择文本列</option>{% for h in headers %}<option {% if h == default_text %}selected{% endif %}>{{ h }}</option>{% endfor %}</select></p><p><label for="context-column">对话 / 访谈编号列</label><select id="context-column" name="context_column"><option value="">不分组：整个文件作为上下文</option>{% for h in headers %}<option {% if h == default_context %}selected{% endif %}>{{ h }}</option>{% endfor %}</select></p></div>
+<div class="table-wrap import-table" role="region" aria-label="材料前5行预览" tabindex="0"><table><thead><tr>{% for h in headers %}<th scope="col">{{ h }}</th>{% endfor %}</tr></thead><tbody>{% for row in preview %}<tr>{% for cell in row %}<td class="preserve">{{ cell }}</td>{% endfor %}</tr>{% endfor %}</tbody></table></div>{% endif %}
+<details class="source-display-fields" {% if display_form.errors %}open{% endif %}><summary>发言信息显示（可选）</summary><div class="source-display-grid">{% for field in display_form %}<p>{{ field.label_tag }}{{ field }}{{ field.errors }}</p>{% endfor %}</div><p class="hint">只展示原始字段；引用不代表接收对象，无对应信息可留空。</p></details>
+<div class="task-actions"><p class="hint">保留原文件和其他列；完全相同的记录跳过，已有编码保留。</p><button class="button" type="submit">确认导入</button></div></form></section>{% endif %}
+</div>
 {% endblock %}

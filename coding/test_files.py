@@ -225,7 +225,7 @@ class CodebookImportTests(TestCase):
         response = self.preview(draft)
         self.assertEqual(response.status_code, 302)
         response = self.client.get(response.url)
-        self.assertContains(response, '确认导入结果')
+        self.assertContains(response, '核对编码本')
         self.assertContains(response, '具体行为')
         self.assertEqual(Code.objects.count(), count)
         self.assertEqual(self.confirm(draft).status_code, 302)

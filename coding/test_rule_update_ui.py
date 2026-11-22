@@ -139,8 +139,8 @@ class RuleUpdateUITests(TestCase):
         book = self.draft()
         response = self.client.get(reverse('project', args=[self.project.pk]))
         html = response.content.decode()
-        # Old round names may mention their historical rules, but the rules card has one link.
-        rules = html.split('<h2>编码规则</h2>', 1)[1].split('</section>', 1)[0]
+        # Historical rounds keep their versions; the project resource links to the current book.
+        rules = html.split('<dt>当前编码本</dt>', 1)[1].split('</dd>', 1)[0]
         self.assertIn(self.url('codebook', book), rules)
         self.assertNotIn(self.url('codebook'), rules)
         quick = QuickStartForm(project=self.project)

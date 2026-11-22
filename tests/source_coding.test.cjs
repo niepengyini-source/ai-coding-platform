@@ -36,6 +36,9 @@ test('retry fingerprint ignores label order but notices meaningful edits', () =>
   assert.notEqual(fingerprint(value), fingerprint({...value, uncertain: true}));
   assert.notEqual(fingerprint(value), fingerprint({...value, no_code: true}));
   assert.notEqual(fingerprint(value), fingerprint({...value, end: 3}));
+  const withCode = {...value, new_code: {name: '核对资料', definition: ''}};
+  assert.notEqual(fingerprint(value), fingerprint(withCode));
+  assert.notEqual(fingerprint(withCode), fingerprint({...withCode, new_code: {name: '核对资料', definition: '对照来源'}}));
 });
 
 test('image regions with the same text offsets remain distinct', () => {

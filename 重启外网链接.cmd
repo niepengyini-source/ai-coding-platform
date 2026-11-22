@@ -1,9 +1,20 @@
 @echo off
 chcp 65001 >nul
-title AI¸¨Öú±àÂëÆ½Ì¨ ¡¤ ÖØÆôÍâÍøÁ´½Ó
+title AIè¾…åŠ©ç¼–ç å¹³å° Â· é‡å¯å¤–ç½‘é“¾æŽ¥
 cd /d "%~dp0"
 echo.
-echo 	×÷ÓÃ£º±£³ÖÆ½Ì¨²»¶¯£¬Ö»ÖØ½¨ÍâÍøÁ´½Ó£¨±¾»úºÍ¾ÖÓòÍøµØÖ·ÔÝÊ±²»ÊÜÓ°Ïì£©¡£
-echo 	ÐèÒª£ºµçÄÔ¿ª»ú¡¢ÁªÍø¡¢²»ÐÝÃß¡£
+echo    æ­£åœ¨æ›´æ¢å¤–ç½‘é“¾æŽ¥ï¼Œå¹³å°ä¼šç»§ç»­è¿è¡Œï¼Œè¯·ç¨å€™â€¦â€¦
 echo.
-powershell -NoProfile -ExecutionPolicy Bypass -File "%~dp0tools\ÍâÍø½Å±¾.ps1" -Mode Restart
+powershell.exe -NoProfile -ExecutionPolicy Bypass -File "%~dp0tools\å¤–ç½‘è„šæœ¬.ps1" -Mode Restart -NoPause
+if errorlevel 1 goto failed
+echo.
+echo    æŒ‰ä»»æ„é”®å…³é—­æœ¬çª—å£ã€‚å¹³å°å’Œéš§é“ä¼šç»§ç»­åœ¨åŽå°è¿è¡Œã€‚
+pause >nul
+exit /b 0
+
+:failed
+echo.
+echo    æ›´æ¢æ²¡æœ‰å®Œæˆï¼šåŽŸå› è§ä¸Šæ–¹æç¤ºã€‚
+echo    æŒ‰ä»»æ„é”®å…³é—­æœ¬çª—å£ã€‚
+pause >nul
+exit /b 1

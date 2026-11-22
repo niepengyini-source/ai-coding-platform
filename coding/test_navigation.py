@@ -31,13 +31,9 @@ class NavigationTests(TestCase):
             with self.subTest(path=path):
                 response = self.client.get(path)
                 self.assertContains(response, f'data-navigation-user="{self.owner.id}"')
-                if path == '/':
-                    self.assertNotContains(response, 'id="page-back"')
-                else:
-                    self.assertContains(response, 'id="page-back"', count=1)
-                    self.assertContains(response, 'href="/">← 返回上一页')
+                self.assertNotContains(response, 'id="page-back"')
 
-    def test_workspace_pages_fallback_to_function_selection(self):
+    def test_workspace_pages_fallback_to_project_home(self):
         self.client.force_login(self.owner)
         for path in ['/groups/join/', '/guide/', '/accounts/password/',
                      '/accounts/password/done/']:

@@ -1,11 +1,14 @@
 {% if workflow %}<section class="card project-journey" aria-labelledby="project-next-step">
-  <ol class="journey-stages" aria-label="研究工作阶段">
-    {% for phase in workflow.phases %}<li{% if phase.current %} aria-current="step"{% endif %}><span class="journey-stage-number" aria-hidden="true">{{ phase.number }}</span><span>{{ phase.label }}</span></li>{% endfor %}
-  </ol>
   <div class="journey-next">
     <div class="journey-next-copy"><h2 id="project-next-step">{{ workflow.title }}</h2>{% if workflow.round_name %}<p class="journey-round">{{ workflow.round_name }}</p>{% endif %}<p class="muted">{{ workflow.detail }}</p>
       {% if workflow.progress.total %}<div class="journey-progress"><label for="journey-progress">{% if workflow.progress.scope == 'team' %}本轮团队提交{% elif workflow.progress.scope == 'final' %}本轮定稿{% else %}本轮我的提交{% endif %} <strong>{{ workflow.progress.submitted }} / {{ workflow.progress.total }}</strong></label><progress id="journey-progress" max="{{ workflow.progress.total }}" value="{{ workflow.progress.submitted }}"></progress></div>{% endif %}
     </div>
-    <div class="journey-next-actions"><a class="button journey-primary" href="{{ workflow.next_url }}">{% if workflow.preparation and workflow.missing == 'materials' and workflow.can_manage %}第一步：{% elif workflow.preparation %}下一步：{% endif %}{{ workflow.next_label }} →</a><a class="journey-help" href="{% url 'guide' %}?project={{ project.id }}#workflow">查看流程说明 ↗</a></div>
+    {% if workflow.show_action %}<div class="journey-next-actions"><a class="button journey-primary" href="{{ workflow.next_url }}">{{ workflow.next_label }} →</a></div>{% endif %}
   </div>
+  <details class="project-flow"><summary>查看研究流程</summary>
+    <ol class="journey-stages" aria-label="研究工作阶段">
+      {% for phase in workflow.phases %}<li{% if phase.current %} aria-current="step"{% endif %}><span class="journey-stage-number" aria-hidden="true">{{ phase.number }}</span><span>{{ phase.label }}</span></li>{% endfor %}
+    </ol>
+    <a class="journey-help" href="{% url 'guide' %}?project={{ project.id }}#workflow">查看流程说明 →</a>
+  </details>
 </section>{% endif %}

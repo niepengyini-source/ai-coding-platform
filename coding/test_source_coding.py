@@ -8,6 +8,7 @@ from xml.etree import ElementTree as ET
 
 from django.contrib.auth import get_user_model
 from django.core.exceptions import PermissionDenied
+from django.core.files.uploadedfile import SimpleUploadedFile
 from django.test import Client, TestCase, override_settings
 from django.urls import reverse
 
@@ -16,6 +17,7 @@ from .source_coding import (add_workspace_code, canonical_source, finish_source_
     set_source_completed, source_annotation_data, start_source_coding)
 from .source_models import SourceAnnotation, SourceCodingTask
 from .services import Conflict
+from .test_material_normalization import material_docx
 from .tests import TEST_SETTINGS
 
 
@@ -51,11 +53,12 @@ class SourceCodingTests(TestCase):
 
     def payload(self, *, start=0, end=None, **extra):
         text, _ = canonical_source(self.document)
-        code = self.book.codes.first() or self.add_code()
+        if 'primary' not in extra:
+            extra['primary'] = (self.book.codes.first() or self.add_code()).pk
         end = len(text) if end is None else end
         return {'start': start, 'end': end, 'text': text[start:end], 'revision': 0,
                 'book_id': self.book.pk, 'token': uuid.uuid4().hex,
-                'primary': code.pk, 'secondary': [], 'labels': [], 'uncertain': False,
+                'secondary': [], 'labels': [], 'uncertain': False,
                 'no_code': False, 'note': '虚构编码依据', **extra}
 
     def test_empty_codebook_starts_without_units_or_freezing_rules(self):
@@ -73,6 +76,66 @@ class SourceCodingTests(TestCase):
         self.assertEqual(second_round.pk, self.round.pk)
         self.assertEqual(SourceCodingTask.objects.count(), 1)
         self.assertEqual(Assignment.objects.count(), 0)
+
+    def import_source_document(self):
+        materials_url = reverse('materials', args=[self.project.pk])
+        raw = material_docx('<w:p><w:r><w:t>这是用于验证的虚构政策。</w:t></w:r></w:p>')
+        preview = self.client.post(materials_url, {'file': SimpleUploadedFile('policy.docx', raw)})
+        imported = self.client.post(materials_url, {'draft_id': preview.context['draft'].pk, 'text_column': 'text'})
+        document = self.project.documents.get(name='policy.docx')
+        start_url = reverse('source_start', args=[self.project.pk]) + f'?document={document.pk}'
+        self.assertRedirects(imported, start_url, fetch_redirect_response=False)
+        return document, start_url
+
+    def test_source_start_can_skip_import_and_open_with_an_empty_codebook(self):
+        self.round.state = 'closed'
+        self.round.save(update_fields=['state'])
+        document, start_url = self.import_source_document()
+        start = self.client.get(start_url)
+        self.assertContains(start, '跳过')
+        self.assertEqual(self.project.rounds.count(), 1)
+
+        started = self.client.post(start_url, {'document_id': document.pk})
+        new_round = self.project.rounds.get(state='active')
+        task = new_round.source_tasks.get(document=document)
+        self.assertRedirects(started, reverse('workbench', args=[new_round.pk]) + f'?task={task.pk}')
+        self.assertFalse(self.book.codes.exists())
+
+    def test_source_codebook_import_returns_to_document_before_starting(self):
+        self.round.state = 'closed'
+        self.round.save(update_fields=['state'])
+        document, start_url = self.import_source_document()
+        book_args = [self.project.pk, self.book.pk]
+        import_url = reverse('source_book_import', args=[*book_args, document.pk])
+        start = self.client.get(start_url)
+        self.assertContains(start, f'href="{import_url}"')
+        self.assertContains(start, '跳过')
+        other = Project.objects.create(owner=self.owner, name='另一个虚构项目')
+        Membership.objects.create(project=other, user=self.owner, role='owner')
+        other_book = Codebook.objects.create(project=other, version=1)
+        wrong_document_url = reverse('source_book_import', args=[other.pk, other_book.pk, document.pk])
+        self.assertEqual(self.client.get(wrong_document_url).status_code, 404)
+
+        codes = 'Code,Definition of behavior\nCHECK,核对已知证据\n'.encode()
+        uploaded = self.client.post(import_url, {'action': 'upload', 'auto_preview': 'yes',
+            'file': SimpleUploadedFile('rules.csv', codes, content_type='text/csv')}, follow=True)
+        self.assertContains(uploaded, '确认导入并使用')
+        self.assertFalse(self.book.codes.exists())
+        confirm = {'action': 'confirm', 'draft_id': uploaded.context['draft'].pk, 'confirmed': 'yes'}
+        self.assertRedirects(self.client.post(import_url, confirm), start_url)
+        self.assertRedirects(self.client.post(import_url, confirm), start_url)
+        self.assertRedirects(self.client.post(reverse('book_import', args=book_args), confirm),
+                             reverse('codebook', args=book_args))
+        self.assertContains(self.client.get(start_url), '使用当前编码本')
+        self.assertEqual(self.project.rounds.count(), 1)
+        self.assertEqual(list(self.book.codes.values_list('key', flat=True)), ['CHECK'])
+        self.assertTrue(self.round.source_tasks.filter(pk=self.task.pk).exists())
+
+        started = self.client.post(start_url, {'document_id': document.pk})
+        new_round = self.project.rounds.get(state='active')
+        task = new_round.source_tasks.get(document=document)
+        self.assertEqual(new_round.book_id, self.book.pk)
+        self.assertRedirects(started, reverse('workbench', args=[new_round.pk]) + f'?task={task.pk}')
 
     def test_empty_material_and_viewer_cannot_start(self):
         other = Project.objects.create(owner=self.owner, name='空材料项目')
@@ -153,6 +216,67 @@ class SourceCodingTests(TestCase):
             save_source_annotation(self.task.pk, self.owner, payload)
         self.assertEqual(AuditEvent.objects.filter(object_type='SourceAnnotation').count(), 1)
 
+    def test_http_saves_new_code_atomically_and_returns_it_for_reuse(self):
+        url = reverse('source_annotations', args=[self.task.pk])
+        payload = self.payload(end=8, primary=None, book_revision=self.book.revision,
+                               new_code={'name': '比较判断', 'definition': '核对差异'})
+        rejected = self.client.post(url, {**payload, 'note': []}, content_type='application/json')
+        self.assertEqual(rejected.status_code, 400)
+        self.book.refresh_from_db()
+        self.assertEqual(self.book.revision, payload['book_revision'])
+        self.assertFalse(self.book.codes.exists())
+        self.assertFalse(self.task.annotations.exists())
+        self.assertFalse(AuditEvent.objects.filter(action='code.add_during_coding').exists())
+
+        first = self.client.post(url, payload, content_type='application/json')
+        retry = self.client.post(url, payload, content_type='application/json')
+        self.assertEqual(first.status_code, 200)
+        self.assertEqual(retry.status_code, 200)
+        self.assertEqual(retry.json(), first.json())
+        result = first.json()
+        code = self.book.codes.get()
+        self.assertEqual(result['annotation']['primary'], code.pk)
+        self.assertEqual(result['codes'], [{'id': code.pk, 'key': code.key, 'name': '比较判断', 'definition': '核对差异'}])
+        self.assertEqual(result['book_revision'], payload['book_revision'] + 1)
+        self.assertEqual(result['annotation']['book_snapshot']['revision'], result['book_revision'])
+        self.assertEqual(AuditEvent.objects.filter(action='code.add_during_coding').count(), 1)
+        self.assertEqual(AuditEvent.objects.filter(action='source.annotation.save').count(), 1)
+
+        stale = self.payload(start=8, primary=None, book_revision=payload['book_revision'],
+                             new_code={'name': '过时代码'})
+        self.assertEqual(self.client.post(url, stale, content_type='application/json').status_code, 409)
+        second = self.client.post(url, self.payload(start=8, primary=code.pk), content_type='application/json')
+        self.assertEqual(second.status_code, 200)
+        self.assertEqual(second.json()['annotation']['primary'], code.pk)
+        self.assertEqual(self.book.codes.count(), 1)
+
+    def test_save_can_promote_a_reused_secondary_code_to_primary(self):
+        primary, secondary = self.add_code(), self.add_code('讨论判断')
+        secondary.definition = '记录交流判断的过程'
+        secondary.save(update_fields=['definition'])
+        self.book.refresh_from_db()
+        payload = self.payload(primary=primary.pk, secondary=[secondary.pk], book_revision=self.book.revision,
+                               new_code={'name': secondary.name})
+        with self.assertRaisesMessage(ValueError, '已有相同名称'):
+            save_source_annotation(self.task.pk, self.owner,
+                {**payload, 'new_code': {'name': secondary.name, 'definition': '其他定义'}})
+        saved = save_source_annotation(self.task.pk, self.owner, payload)
+        self.assertEqual(saved.primary_id, secondary.pk)
+        self.assertEqual(saved.secondary, [])
+        self.assertEqual(saved.book_snapshot['codes'][0]['definition'], secondary.definition)
+        self.assertEqual(self.book.codes.count(), 2)
+
+    def test_save_can_append_a_new_parallel_code(self):
+        self.book.policy = 'parallel'
+        self.book.save(update_fields=['policy'])
+        code = self.add_code()
+        self.book.refresh_from_db()
+        payload = self.payload(primary=None, labels=[code.pk], book_revision=self.book.revision,
+                               new_code={'name': '讨论判断'})
+        saved = save_source_annotation(self.task.pk, self.owner, payload)
+        self.assertIsNone(saved.primary_id)
+        self.assertCountEqual(saved.labels, [code.pk, self.book.codes.get(name='讨论判断').pk])
+
     def test_bad_source_offsets_and_foreign_codes_do_not_save(self):
         foreign_book = Codebook.objects.create(project=self.project, version=2)
         foreign = Code.objects.create(book=foreign_book, key='OTHER', name='别的规则', definition='测试')
@@ -232,6 +356,27 @@ class SourceCodingTests(TestCase):
         self.assertIn('自己可见', content)
         self.assertNotIn('其他人的答案', content)
         self.assertIn('1,3', content)
+
+    def test_source_export_tab_uses_own_batches_and_does_not_change_research_state(self):
+        save_source_annotation(self.task.pk, self.owner, self.payload())
+        peer_round, _ = start_source_coding(self.project, self.coder, self.book.pk)
+        before = (Round.objects.count(), SourceCodingTask.objects.count(),
+                  SourceAnnotation.objects.count(), AuditEvent.objects.count())
+        url = reverse('exports', args=[self.project.pk])
+        page = self.client.get(url, {'view': 'source'})
+        self.assertEqual(page.context['export_view'], 'source')
+        self.assertEqual([row['round_id'] for row in page.context['source_rows']], [self.round.pk])
+        self.assertContains(page, f'action="{reverse("source_export", args=[self.round.pk])}"')
+        self.assertNotContains(page, 'id="export-options"')
+        self.assertNotContains(page, f'action="{reverse("source_export", args=[peer_round.pk])}"')
+        for file_format in ('xlsx', 'docx', 'csv', 'tsv', 'json'):
+            self.assertContains(page, f'value="{file_format}"')
+        self.assertEqual(before, (Round.objects.count(), SourceCodingTask.objects.count(),
+                                 SourceAnnotation.objects.count(), AuditEvent.objects.count()))
+        self.client.force_login(self.viewer)
+        self.assertContains(self.client.get(url, {'view': 'source'}), '还没有原文选段编码记录')
+        self.client.force_login(self.outsider)
+        self.assertEqual(self.client.get(url, {'view': 'source'}).status_code, 404)
 
     def test_word_export_summarizes_own_references_and_distinct_sources_by_code(self):
         first = self.add_code()

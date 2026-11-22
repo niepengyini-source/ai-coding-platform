@@ -17,7 +17,7 @@ from django.views.decorators.http import require_GET, require_http_methods, requ
 
 from .document_reading import reading_blocks
 from .exporting import ExportTable, export_response
-from .models import AuditEvent, Membership, Round, SourceDocument
+from .models import AuditEvent, Codebook, Membership, Round, SourceDocument
 from .source_models import SourceAnnotation, SourceCodingTask
 from .source_coding import (add_workspace_code, canonical_source, code_data, coding_documents, finish_source_coding,
     progress_for, save_source_annotation, set_source_completed, source_annotation_data, start_source_coding, task_data)
@@ -69,11 +69,14 @@ def start(request, project_id):
             return redirect(destination + (f'?task={task.pk}' if task else ''))
         except (ValueError, OperationalError) as exc:
             error = '数据库忙，请稍后重试；本次尚未确认开始。' if isinstance(exc, OperationalError) else str(exc)
-    resume = Round.objects.filter(project=project, started_by=request.user, kind='quick', state='active',
-                                   sampling__source_coding=True).order_by('-id').first()
+    resume = Round.objects.filter(project=project, book=book, started_by=request.user, kind='quick',
+                                  state='active', sampling__source_coding=True).order_by('-id').first()
+    book_ready = bool(book and book.codes.exists())
+    prepare_codebook = selected and book and not book_ready and not resume and role in ('owner', 'reviewer')
     return render(request, 'coding/source_start.html', {'project': project, 'role': role, 'book': book,
         'documents': documents, 'document_id': selected.pk if selected else '', 'error': error,
-        'resume_round': resume, 'source_preview': selected})
+        'resume_round': resume, 'source_preview': selected, 'book_ready': book_ready,
+        'prepare_codebook': prepare_codebook})
 
 
 @login_required
@@ -102,7 +105,7 @@ def workbench(request, round_id):
     def page_url(number):
         return reverse('workbench', args=[round_obj.pk]) + '?' + urlencode({'task': task.pk, 'reader_page': number})
     urls = {'annotations': reverse('source_annotations', args=[task.pk]),
-        'complete': reverse('source_complete', args=[task.pk]), 'codes': reverse('source_codes', args=[round_obj.pk]),
+        'complete': reverse('source_complete', args=[task.pk]),
         'finish': reverse('source_finish', args=[round_obj.pk]),
         'export': reverse('source_export', args=[round_obj.pk]) + '?format=xlsx',
         'history': reverse('source_history', args=[1]).replace('1/history/', '')}
@@ -135,10 +138,15 @@ def annotations(request, task_id):
         return JsonResponse({'annotations': _overview(task, reading_blocks(blocks)), 'task': task_data(task),
                              'progress': progress_for(task.round, request.user)})
     try:
-        annotation = save_source_annotation(task.pk, request.user, body_json(request))
+        data = body_json(request)
+        annotation = save_source_annotation(task.pk, request.user, data)
         task.refresh_from_db()
-        return JsonResponse({'annotation': source_annotation_data(annotation), 'task': task_data(task),
-                             'progress': progress_for(task.round, request.user)})
+        result = {'annotation': source_annotation_data(annotation), 'task': task_data(task),
+                  'progress': progress_for(task.round, request.user)}
+        if data.get('new_code') is not None:
+            book = Codebook.objects.get(pk=annotation.book_snapshot['id'])
+            result.update(codes=[code_data(code) for code in book.codes.all()], book_revision=book.revision)
+        return JsonResponse(result)
     except (ValueError, OperationalError) as error:
         return api_error(error)
 

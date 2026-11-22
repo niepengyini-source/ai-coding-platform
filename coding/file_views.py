@@ -13,6 +13,7 @@ from django.urls import reverse
 from django.utils.http import urlencode
 
 from .models import Codebook, CodebookImportDraft, Project, Round
+from .source_coding import coding_documents
 from .views import access, review_access
 from .codebook_files import (FIELDS, MAX_BYTES, parse_codebook, normalized_codes, draft_available,
                              apply_codebook_import, suggest_mapping, mapping_candidates, LOOKUP, normalize_header,
@@ -74,10 +75,18 @@ def save_import_preview(draft, user, book, preview):
 
 
 @login_required
-def book_import(request, project_id, book_id):
+def book_import(request, project_id, book_id, document_id=None):
     project, role = access(request, project_id, ['owner', 'reviewer'])
     book = get_object_or_404(Codebook, project=project, pk=book_id)
-    context = {'project': project, 'role': role, 'book': book}
+    source_return = ''
+    if document_id is not None:
+        document = get_object_or_404(coding_documents(project), pk=document_id)
+        source_return = reverse('source_start', args=[project.id]) + '?' + urlencode({'document': document.pk})
+
+    def import_done(applied_book_id):
+        return redirect(source_return or reverse('codebook', args=[project.id, applied_book_id]))
+
+    context = {'project': project, 'role': role, 'book': book, 'source_return': source_return}
     draft = None
     action = request.POST.get('action', '') if request.method == 'POST' else ''
     try:
@@ -87,7 +96,7 @@ def book_import(request, project_id, book_id):
             context['draft'] = draft
             if draft.applied_book_id:
                 messages.info(request, '这次文件已经导入，未重复添加代码。')
-                return redirect('codebook', project.id, draft.applied_book_id)
+                return import_done(draft.applied_book_id)
             draft_available(draft)
         if action == 'confirm':
             if not draft:
@@ -100,7 +109,7 @@ def book_import(request, project_id, book_id):
                 messages.info(request, '规则已存在，保留原编码本，未重复添加，也未覆盖已有编码。')
             else:
                 messages.success(request, f'编码本导入完成：新增 {result.get("added_count", len(draft.preview.get("codes", [])))} 条规则，跳过 {result.get("duplicate_count", draft.preview.get("import_stats", {}).get("duplicate_count", 0))} 条完全重复规则。已有任务不自动更换规则。')
-            return redirect('codebook', project.id, target.id)
+            return import_done(target.id)
         if action == 'upload':
             upload = request.FILES.get('file')
             if not upload or upload.size > MAX_BYTES:
@@ -110,7 +119,7 @@ def book_import(request, project_id, book_id):
             headers, rows, sheets, selected_sheet, warnings = parse_codebook(upload.name, raw)
             draft = CodebookImportDraft.objects.create(book=book, user=request.user,
                     filename=Path(upload.name).name[:200], raw=raw)
-            url = reverse('book_import', args=[project.id, book.id])
+            url = request.path
             # New UI requests the short path. Older upload clients can still open
             # the mapping page. Preview remains a CSRF-protected POST operation.
             if request.POST.get('auto_preview') == 'yes':
@@ -123,7 +132,7 @@ def book_import(request, project_id, book_id):
                         preview = import_preview(book, form, rows, selected_sheet, warnings, automatic=True)
                         applied_book_id = save_import_preview(draft, request.user, book, preview)
                         if applied_book_id:
-                            return redirect('codebook', project.id, applied_book_id)
+                            return import_done(applied_book_id)
                         return redirect(url + '?' + urlencode({'draft': str(draft.pk), 'stage': 'preview'}))
                     except ValueError as error:
                         messages.warning(request, '文件已保留，但还不能直接导入：' + str(error))
@@ -154,8 +163,8 @@ def book_import(request, project_id, book_id):
             preview = import_preview(book, form, rows, selected_sheet, warnings)
             applied_book_id = save_import_preview(draft, request.user, book, preview)
             if applied_book_id:
-                return redirect('codebook', project.id, applied_book_id)
-            url = reverse('book_import', args=[project.id, book.id])
+                return import_done(applied_book_id)
+            url = request.path
             return redirect(url + '?' + urlencode({'draft': str(draft.pk), 'stage': 'preview'}))
     except (ValueError, TypeError, OperationalError) as error:
         context['error'] = str(error) if not isinstance(error, OperationalError) else '数据库正在忙，未确认导入成功。请稍后重试。'
@@ -209,7 +218,7 @@ def export_table_for(request, project, role, params):
     if r.kind == 'quick' and r.started_by_id != request.user.pk and role not in ('owner', 'reviewer'):
         raise Http404
     if r.sampling.get('source_coding'):
-        raise ValueError('原文选段请使用下方“我的原文选段编码”导出入口，保留片段位置与编码本快照。')
+        raise ValueError('原文选段请切换到“原文选段结果”，保留片段位置与编码本快照。')
     if target == 'mine':
         if r.assignments.filter(coder=request.user, superseded=False).count() > MAX_EXPORT_ROWS:
             raise ValueError('一次最多导出50000行，请按轮次分批导出。')
@@ -236,6 +245,9 @@ def exports(request, project_id):
                'include_inactive': params.get('include_inactive') == 'yes'}
     from .source_progress import project_rows
     context['source_rows'] = project_rows(project, request.user, role)
+    if request.method == 'GET' and params.get('view') == 'source':
+        context['export_view'] = 'source'
+        return render(request, 'coding/exports.html', context)
     try:
         table, book, r = export_table_for(request, project, role, params)
         context.update(book=book, round=r, table=table, row_count=len(table.rows), total_row_count=len(table.rows))

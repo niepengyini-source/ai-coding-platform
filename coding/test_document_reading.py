@@ -122,7 +122,9 @@ class DocumentReadingTests(TestCase):
         raw = material_docx('<w:p><w:r><w:t>学校应先核对资料。</w:t></w:r></w:p><w:p><w:r><w:t>教师记录判断依据。</w:t></w:r></w:p>')
         url = f'/p/{self.project.pk}/materials/'
         response = self.client.post(url, {'file': SimpleUploadedFile('sample.docx', raw)})
-        self.assertContains(response, '推荐使用全文阅读工作台')
+        self.assertContains(response, '核对原文')
+        self.assertContains(response, '学校应先核对资料。')
+        self.assertContains(response, 'aria-label="提取文字预览"')
         draft = response.context['draft']
         response = self.client.post(url, {'draft_id': str(draft.pk), 'text_column': 'text', 'context_column': ''})
         document = self.project.documents.get(name='sample.docx')

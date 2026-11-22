@@ -66,15 +66,11 @@
 .source-code-option span {min-width:0;}
 .source-code-option small {display:block;font-size:10px;color:var(--muted);margin-top:2px;}
 .source-code-group .text-button {font-size:12px;padding:4px 0;margin-top:4px;}
-.source-new-code {margin-bottom:16px;padding:10px 12px;border:1px solid var(--line);border-radius:10px;background:var(--subtle);}
-.source-new-code h3 {margin:0 0 8px;font-size:14px;}
-.source-new-code-entry {display:grid;grid-template-columns:minmax(0,1fr) auto;gap:6px;}
-.source-new-code-entry input {min-width:0;width:100%;}
-.source-new-code-entry .button {padding-inline:9px;white-space:nowrap;}
+.source-new-code {margin-bottom:16px;}
+.source-new-code input {width:100%;}
 .source-new-code details {margin-top:6px;}
 .source-new-code summary {font-size:12px;color:var(--blue);cursor:pointer;}
 .source-new-code textarea {margin-top:6px;}
-.source-new-code [data-source-code-status]:not(:empty) {margin-top:6px;}
 .source-empty-code-hint {margin-top:12px !important;}
 .source-overlap-list {padding:10px;border:1px solid var(--line);border-radius:9px;margin-bottom:14px;}
 .source-overlap-list button {display:block;width:100%;margin-top:7px;font:inherit;font-size:12px;text-align:left;line-height:1.7;background:var(--subtle);color:var(--ink);border:0;border-radius:7px;padding:8px;cursor:pointer;}

@@ -120,8 +120,9 @@ class Session:
         response = self.send('/login/', {'username': user.username, 'password': password})
         check('login ' + user.username, response[0] == 302 and response[2]['Location'] == '/')
         status, raw, _ = self.follow(response)
-        check('landing modules ' + user.username, status == 200 and '我的项目'.encode() in raw
-              and '加入小组'.encode() in raw and b'<aside class="sidebar">' not in raw)
+        check('project landing with navigation ' + user.username, status == 200 and '我的项目'.encode() in raw
+              and '用邀请码加入'.encode() in raw and b'<aside class="sidebar">' in raw
+              and b'data-sidebar-toggle' in raw)
 
 
 def business_state(project):
@@ -186,11 +187,12 @@ def prepare_project(session, project):
     check('two units preserve all source metadata', Unit.objects.filter(record__document__project=project).count() == 2
           and all(row.metadata['group_id'] == 'FG1' and row.metadata['created_at'].startswith('2026-10-17')
                   for row in SourceRecord.objects.filter(document__project=project)))
-    check('material completion recommends codebook', heading(session.page(f'/p/{project.pk}/', project)) == '准备编码本')
+    check('material completion permits preparing or building codes',
+          heading(session.page(f'/p/{project.pk}/', project)) == '可以边读边建立编码')
     book = project.codebooks.first()
     response = session.send(f'/p/{project.pk}/code/')
-    check('missing rules routes to current codebook', response[0] == 302
-          and response[2]['Location'] == f'/p/{project.pk}/books/{book.pk}/')
+    check('empty rules allow coding preparation without creating work', response[0] == 302
+          and response[2]['Location'] == f'/p/{project.pk}/quick-start/' and not project.rounds.exists())
     page = session.page(f'/p/{project.pk}/units/', project)
     check('material completed guide is step two', 'data-setup-stage="2"' in page and '材料已就绪' in page)
     page = preparation_next(session, page, project, f'/p/{project.pk}/books/{book.pk}/')

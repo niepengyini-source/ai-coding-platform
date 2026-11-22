@@ -1,6 +1,6 @@
-{% if workflow.preparation %}<section class="card setup-guide" aria-label="当前工作指引" data-setup-stage="{{ workflow.preparation.stage }}">
+{% if workflow.preparation %}<section class="card setup-guide{% if compact %} compact-guide{% endif %}" aria-label="当前工作指引" data-setup-stage="{{ workflow.preparation.stage }}">
   {% include 'coding/preparation_steps.html' %}
-  <div class="setup-next-row"><div><h2>{{ workflow.preparation.title }}</h2><p>{{ workflow.preparation.detail }}</p></div>{% if workflow.preparation.next_url %}<a class="button setup-next" href="{{ workflow.preparation.next_url }}">{{ workflow.preparation.next_label }} →</a>{% elif workflow.preparation.confirm_anchor %}<a class="button" href="{{ workflow.preparation.confirm_anchor }}">下一步：确认导入 →</a>{% endif %}</div>
+  {% if not compact or workflow.preparation.next_url or workflow.preparation.confirm_anchor %}<div class="setup-next-row"><div><h2>{{ workflow.preparation.title }}</h2>{% if not compact %}<p>{{ workflow.preparation.detail }}</p>{% endif %}</div>{% if workflow.preparation.next_url %}<a class="button setup-next" href="{{ workflow.preparation.next_url }}">{{ workflow.preparation.next_label }} →</a>{% elif workflow.preparation.confirm_anchor %}<a href="{{ workflow.preparation.confirm_anchor }}">确认导入 ↓</a>{% endif %}</div>{% endif %}
 </section>{% elif workflow %}{% if layout_page != 'workbench' or workflow.show_action %}<section class="workflow-hint" aria-label="当前工作指引">
   <div><strong>{{ workflow.title }}</strong>{% if workflow.round_name %}<span class="workflow-hint-round">{{ workflow.round_name }}</span>{% endif %}<p>{{ workflow.detail }}</p></div>
   {% if workflow.show_action %}<a class="button secondary" href="{{ workflow.next_url }}">{{ workflow.next_label }} →</a>{% endif %}

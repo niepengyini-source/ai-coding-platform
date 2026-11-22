@@ -25,7 +25,7 @@ from .reliability import report_for
 from .reviewing import disagreement_rows
 from .account_forms import InvitationForm, JoinReviewForm
 from .group_services import mark_approved
-from .workflow import visible_rounds, current_coding_round, coding_assignments, next_coding_url, history_permissions
+from .workflow import visible_rounds, coding_assignments, next_coding_url, history_permissions
 from .splitting import split_personal, suggest_split, split_restore_options
 from .context import context_page
 from .source_information import (attach_source_information, available_headers, display_mapping,
@@ -146,7 +146,6 @@ def project_view(request, project_id):
                     messages.success(request, '项目说明已保存。')
                     return redirect('project', project.id)
     return render(request, 'coding/project.html', {'project': project, 'role': role, 'form': form,
-        'coding_round': current_coding_round(project, request.user),
         'unit_count': Unit.objects.filter(record__document__project=project, active=True).count(),
         'rounds': visible_rounds(project, request.user, role).select_related('book', 'started_by').order_by('-id')})
 

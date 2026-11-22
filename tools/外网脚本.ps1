@@ -5,10 +5,10 @@ AI辅助编码平台 · 外网链接助手（外网脚本.ps1）
 由项目根目录的“启动外网.cmd”和“重启外网链接.cmd”双击调用；一般不需要手动运行本文件。
 
   -Mode Start       平台未运行则启动；隧道不可用或链接失效则自动重建；最后显示外网链接
-  -Mode Restart     保持平台运行，重建隧道并换用新链接
+  -Mode Restart     重建隧道；平台需要加载新域名时短暂重启
   -Mode RestartAll  重建隧道并重启平台（本机与局域网地址也会短暂不可用）
   -Mode Status      只检查，不修改任何东西
-  -Mode Test        自动化回归测试：复制到临时目录、虚构数据库，不碰真实数据
+  -Mode Test        联网测试，必须指定独立的 -TestRoot
   -OpenBrowser      -Mode Start 时用浏览器打开本机平台
   -NoPause          结束后不等按键，供其他程序调用
   -Port             平台端口；默认取 .env 的 PLATFORM_PORT
@@ -60,11 +60,6 @@ function Write-Warn([string]$Message) { Write-Host ('  ! ' + $Message) -Foregrou
 function Write-Fail([string]$Message) { Write-Host ('  × ' + $Message) -ForegroundColor Red }
 function Write-Line([string]$Message = '') { Write-Host $Message }
 
-function Confirm-Now([string]$Question) {
-    $answer = Read-Host ($Question + '（输入 y 确认）')
-    return $answer.Trim() -eq 'y'
-}
-
 function Invoke-Web($Url, [int]$TimeoutSec = 20) {
     $request = @{ Uri = $Url; UseBasicParsing = $true; TimeoutSec = $TimeoutSec; MaximumRedirection = 0 }
     if ($PSVersionTable.PSVersion.Major -ge 6) { $request['SkipHttpErrorCheck'] = $true }
@@ -107,7 +102,7 @@ function Test-PlatformUp {
 
 function Test-TunnelAlive([string]$HostName) {
     $response = Invoke-Web ('https://' + $HostName + '/login/') 20
-    return [bool]$response -and $response.StatusCode -ge 100 -and $response.StatusCode -lt 400
+    return [bool]$response -and $response.StatusCode -eq 200 -and $response.Content -match 'csrfmiddlewaretoken'
 }
 
 function Read-EnvLines {
@@ -185,7 +180,11 @@ function Get-PlatformProcess {
     if ($state.port -ne $script:Port -or $state.project_root -ne $Root) { return $null }
     $process = Get-Process -Id ([int]$state.pid) -ErrorAction SilentlyContinue
     if (-not $process) { return $null }
-    try { if ($process.Path -notin @($state.executable, $state.base_executable)) { return $null } } catch { return $null }
+    try {
+        if ($process.Path -notin @($state.executable, $state.base_executable)) { return $null }
+        $recorded = [DateTimeOffset]::Parse($state.started_at).UtcDateTime
+        if ([Math]::Abs(($process.StartTime.ToUniversalTime() - $recorded).TotalSeconds) -gt 15) { return $null }
+    } catch { return $null }
     return $state
 }
 
@@ -227,6 +226,16 @@ function Stop-Platform {
     Write-Ok ('平台已停止（原进程 ' + $process.Id + '）。已保存的数据保留。')
 }
 
+function Prepare-Platform {
+    $python = Join-Path $Root '.venv\Scripts\python.exe'
+    if (-not (Test-Path -LiteralPath $python)) { throw '找不到 .venv\Scripts\python.exe，请先按README建立Python虚拟环境。' }
+    Write-Step '正在核对数据库版本并更新网页资源…'
+    & $python -X utf8 -B manage.py migrate --check | Out-Host
+    if ($LASTEXITCODE -ne 0) { throw '数据库有待处理的迁移。请先按 README 的正常启动流程处理。' }
+    & $python -X utf8 -B manage.py collectstatic --noinput | Out-Host
+    if ($LASTEXITCODE -ne 0) { throw '网页资源收集失败。' }
+}
+
 function Start-PlatformDetached {
     $python = Join-Path $Root '.venv\Scripts\python.exe'
     if (-not (Test-Path -LiteralPath $python)) { throw '找不到 .venv\Scripts\python.exe，请先按README建立Python虚拟环境。' }
@@ -235,13 +244,18 @@ function Start-PlatformDetached {
     $stamp = Get-Date -Format 'yyyyMMdd-HHmmss'
     $outLog = Join-Path $Runtime ('platform-{0}.out.log' -f $stamp)
     $errLog = Join-Path $Runtime ('platform-{0}.err.log' -f $stamp)
+    # 启动前先确保 .env 已有公网域名：隧道可能先于平台接受请求，缺少域名会被 Django 拒绝。
+    if (-not (Get-PublicHostValue)) {
+        $known = Get-CurrentTunnelInfo
+        if ($known.HostName) { Set-EnvValue 'PLATFORM_PUBLIC_HOST' $known.HostName }
+    }
     $process = Start-Process -FilePath $python -ArgumentList $arguments -WorkingDirectory $Root `
         -WindowStyle Hidden -RedirectStandardOutput $outLog -RedirectStandardError $errLog -PassThru
     # 记录进程号，便于 stop.cmd / 本脚本停止 start.cmd 留下的父进程副本。
     [IO.File]::WriteAllText((Join-Path $Runtime ('pid-{0}.txt' -f $process.Id)), [string]$process.Id, $Utf8)
     $deadline = (Get-Date).AddSeconds(90)
     while ((Get-Date) -lt $deadline) {
-        if (Test-PlatformUp) {
+        if ((Test-PlatformUp) -and (Get-PlatformProcess)) {
             Write-Ok ('平台已启动（进程 ' + $process.Id + '，日志 runtime\' + (Split-Path -Leaf $errLog) + '）。')
             return
         }
@@ -350,17 +364,12 @@ function Start-TunnelDetached {
 }
 
 function Wait-TunnelReady([string]$HostName, [int]$MaxSeconds = 180) {
-    # 回归测试：给出文件路径时只等待它出现 OK，不访问外网。
-    $simulated = Join-Path $env:TEMP ('tunnel-stub-' + $HostName + '.txt')
+    if ($script:OfflineTest) { return $true }
     $deadline = (Get-Date).AddSeconds($MaxSeconds)
     $attempt = 0
     while ((Get-Date) -lt $deadline) {
         $attempt++
-        if ($script:OfflineTest) {
-            if ((Test-Path -LiteralPath $simulated) -and ((Get-Content -LiteralPath $simulated -Raw).Trim() -eq 'OK')) { return $true }
-            Start-Sleep -Seconds 1
-            continue
-        }
+        Write-Step ('正在检查外网登录页（第 ' + $attempt + ' 次），请稍候…')
         if (Test-TunnelAlive $HostName) {
             # 带随机参数：隧道刚建好时 DNS 可能还没切换，避免读到旧缓存。
             return $true
@@ -371,6 +380,10 @@ function Wait-TunnelReady([string]$HostName, [int]$MaxSeconds = 180) {
     return $false
 }
 
+function Get-PublicHostValue {
+    return (Get-EnvValue 'PLATFORM_PUBLIC_HOST').ToLowerInvariant()
+}
+
 function Update-PublicHost([string]$HostName) {
     $current = (Get-EnvValue 'PLATFORM_PUBLIC_HOST').ToLowerInvariant()
     Set-EnvValue 'PLATFORM_PUBLIC_HOST' $HostName
@@ -378,40 +391,26 @@ function Update-PublicHost([string]$HostName) {
     return $current -ne $HostName
 }
 
-function Get-HostProbeScript {
-    # 用临时脚本文件而不是 manage.py shell -c，避免命令行引号与转义在不同 PowerShell 版本下出错。
-    # 放在项目根目录，与 settings 的 BASE_DIR 一致；脚本自己把根目录加入 sys.path。
-    return @(
-        'import os, sys',
-        'sys.path.insert(0, os.path.dirname(os.path.abspath(__file__)))',
-        'os.environ.setdefault("DJANGO_SETTINGS_MODULE", "config.settings")',
-        'import django',
-        'django.setup()',
-        'from django.conf import settings',
-        'print("HOST=" + settings.PLATFORM_PUBLIC_HOST)',
-        'print("ALLOWED=" + ",".join(settings.ALLOWED_HOSTS))'
-    )
+function Confirm-PlatformUsesHost([string]$HostName) {
+    # 只有已加载该公网域名的服务才会把此请求定向到对应的 HTTPS 登录页。
+    $curl = Join-Path $env:SystemRoot 'System32\curl.exe'
+    $result = & $curl --noproxy '*' --silent --max-time 5 -o NUL -w '%{http_code} %{redirect_url}' `
+        -H ('Host: ' + $HostName) ($script:LocalBase + '/login/')
+    return $result -eq ('302 https://' + $HostName + '/login/')
 }
 
-function Confirm-PlatformUsesHost([string]$HostName) {
-    # 直接询问运行平台所用的配置：它是否已把新域名当作公网地址并允许访问。
-    $python = Join-Path $Root '.venv\Scripts\python.exe'
-    $probe = Join-Path $Root '.host_probe.py'
-    $oldHost = $env:PLATFORM_PUBLIC_HOST
-    $env:LOOPBACK_TEST = $null
-    $env:PLATFORM_PUBLIC_HOST = $HostName
-    $output = ''
-    try {
-        [IO.File]::WriteAllText($probe, ((Get-HostProbeScript) -join "`n") + "`n", $Utf8)
-        $output = (& $python -X utf8 $probe 2>&1 | Out-String)
-    } catch {
-        return $false
-    } finally {
-        Remove-Item -LiteralPath $probe -ErrorAction SilentlyContinue
-        if ($null -eq $oldHost) { Remove-Item Env:PLATFORM_PUBLIC_HOST -ErrorAction SilentlyContinue }
-        else { $env:PLATFORM_PUBLIC_HOST = $oldHost }
+function Ensure-PlatformUsesHost([string]$HostName) {
+    if (Test-PlatformUp) {
+        if (-not (Get-PlatformProcess)) { throw '端口上的服务不属于当前仓库，已保留原服务。' }
+        if (Confirm-PlatformUsesHost $HostName) { return }
+        Write-Step '正在让平台加载新的外网域名…'
+        Stop-Platform
+        if (Test-PlatformUp) { throw '无法重启当前平台。' }
+    } else {
+        Prepare-Platform
     }
-    return $output -match ('HOST=' + [regex]::Escape($HostName) + '\s+ALLOWED=[^\r\n]*' + [regex]::Escape($HostName))
+    Start-PlatformDetached
+    if (-not (Confirm-PlatformUsesHost $HostName)) { throw '平台启动后仍无法识别外网域名，请检查启动日志。' }
 }
 
 function Save-StatusFile([string]$HostName, [string]$TunnelPid, [string]$State) {
@@ -425,7 +424,7 @@ function Save-StatusFile([string]$HostName, [string]$TunnelPid, [string]$State) 
         ('本次隧道进程：' + $TunnelPid + '；停止该进程即可停止外网访问，本机平台仍可使用。'),
         '',
         '以下一行可直接复制发给成员：',
-        ('【AI辅助编码平台】请用浏览器打开：https://' + $HostName + '/login/  （请连同 https:// 一起复制；看到“证书”提示时选择继续访问）')
+        ('【AI辅助编码平台】请用浏览器打开：https://' + $HostName + '/login/')
     )
     [IO.File]::WriteAllText($script:LinkFile, (($lines -join "`n") + "`n"), $Utf8)
 }
@@ -450,9 +449,8 @@ function Show-Links([string]$HostName, [bool]$LinkChanged) {
         Write-Line '  账号、项目、编码记录都保留，不会丢失。'
     }
     Write-Line ''
-    Write-Line '  使用期间：隧道在后台运行，本窗口只用来查看地址和关闭隧道。'
+    Write-Line '  平台和隧道在后台运行，关闭窗口后可以继续访问。'
     Write-Line ('  复制地址：地址和“可直接发给成员的一句话”已写入 ' + $script:LinkFile + '。')
-    Write-Line '  暂停外网：按 Ctrl+C 并输入 Y；本机平台仍在运行。'
     Write-Line '  打不开时：双击“重启外网链接.cmd”，会自动换一条新链接。'
     Write-Line '  电脑需开机、不休眠、联网；免费临时链接不保证长期可用。'
 }
@@ -461,26 +459,29 @@ function New-LifecycleTunnel {
     if (-not (Test-Path -LiteralPath $Cloudflared)) {
         throw ('找不到 ' + $Cloudflared + '。请确认 runtime\tools 下的 cloudflared.exe 还在。')
     }
-    Write-Step '正在结束旧的隧道进程…'
+    $publicHost = Get-PublicHostValue
+    if ($publicHost) {
+        # 让运行中的平台先认识“马上要换上的域名”不现实，但至少要保证申请前 .env 是已知状态。
+        Write-Step ('当前记录的外网域名：' + $publicHost)
+    }
     Write-Step '正在向 Cloudflare 申请新链接（约 30 秒）…'
     $tunnel = Start-TunnelDetached
-    Write-Step ('正在等待新链接生效：' + $tunnel.HostName)
-    if (Wait-TunnelReady $tunnel.HostName) {
-        Write-Ok '新链接已可以访问。'
-    } else {
-        Write-Warn '新链接暂时没有响应。Cloudflare 免费临时链接有时要等几十秒才生效；若几分钟后仍打不开，请再运行一次“重启外网链接.cmd”，或改用更稳定的方案。'
-    }
+    # 先把域名写进 .env：Cloudflare 边缘可能在几秒内就把访客请求转过来，平台必须先认识它。
     $changed = Update-PublicHost $tunnel.HostName
-    if (-not (Confirm-PlatformUsesHost $tunnel.HostName)) {
-        Write-Warn '平台还在用旧地址，需要重启平台才能生效。'
-        Stop-Platform
-        Start-Sleep -Milliseconds 800
-        Start-PlatformDetached
-    } else {
-        Write-Ok '平台已识别新地址，不需要重启平台。'
+    Save-StatusFile $tunnel.HostName ([string]$tunnel.ProcessId) '待验证'
+    Write-Step ('已申请网址（正在验证）：https://' + $tunnel.HostName + '/login/')
+    Ensure-PlatformUsesHost $tunnel.HostName
+    Write-Step ('正在等待新链接生效：' + $tunnel.HostName)
+    if (-not (Wait-TunnelReady $tunnel.HostName)) {
+        # 网址已经写进 .env 且平台已加载，只是暂时验证不通：返回状态而不抛错，
+        # 由调用方决定如何提示，避免窗口闪退。
+        Write-Warn ('外网登录页暂未通过验证。本机可访问：' + $script:LocalBase + '/login/')
+        Save-StatusFile $tunnel.HostName ([string]$tunnel.ProcessId) '待验证'
+        return [pscustomobject]@{ Changed = $changed; HostName = $tunnel.HostName; Ready = $false }
     }
+    Write-Ok '新链接已可以访问。'
     Save-StatusFile $tunnel.HostName ([string]$tunnel.ProcessId) '正常'
-    return $changed
+    return [pscustomobject]@{ Changed = $changed; HostName = $tunnel.HostName; Ready = $true }
 }
 
 function Show-Banner {
@@ -500,14 +501,18 @@ function Invoke-Start {
             Stop-Platform
             Start-Sleep -Milliseconds 800
         }
+        Prepare-Platform
         Write-Step '正在启动平台…'
         Start-PlatformDetached
     } else {
-        Write-Ok ('平台已在运行（进程 ' + (Get-PlatformProcess).pid + '），不重复启动。')
+        $state = Get-PlatformProcess
+        if (-not $state) { throw '端口上的服务不属于当前仓库，已保留原服务。' }
+        Write-Ok ('平台已在运行（进程 ' + $state.pid + '），不重复启动。')
     }
     $tunnel = Get-CurrentTunnelInfo
     $changed = $false
     if ($tunnel.HostName -and $tunnel.ProcessIds.Count -gt 0) {
+        Ensure-PlatformUsesHost $tunnel.HostName
         Write-Step '检查现在的外网链接是否还能打开…'
         if (Test-TunnelAlive $tunnel.HostName) {
             Write-Ok ('外网链接可用，地址不变：' + $tunnel.HostName)
@@ -515,7 +520,8 @@ function Invoke-Start {
         } else {
             Write-Warn '现在的链接已经失效（隧道假死或过期），自动重建新链接。'
             Stop-TunnelProcesses | Out-Null
-            $changed = New-LifecycleTunnel
+            $result = New-LifecycleTunnel
+            $changed = $result.Changed
         }
     } else {
         if ($tunnel.ProcessIds.Count -gt 0) {
@@ -524,7 +530,8 @@ function Invoke-Start {
             Write-Step '没有正在运行的隧道，建立一条新的外网链接。'
         }
         Stop-TunnelProcesses | Out-Null
-        $changed = New-LifecycleTunnel
+        $result = New-LifecycleTunnel
+        $changed = $result.Changed
     }
     $final = Get-CurrentTunnelInfo
     Show-Links $final.HostName $changed
@@ -537,22 +544,18 @@ function Invoke-Restart([switch]$WithPlatform) {
     if ($current.HostName) { Write-Line ('  现在的地址：https://' + $current.HostName + '/login/') }
     else { Write-Line '  现在还没有外网链接。' }
     Write-Line ''
-    if (-not (Confirm-Now '这会换一条新的外网链接，成员需要重新登录。继续吗？')) {
-        Write-Line '  已取消，什么都没改。'
-        return
-    }
+    Write-Step '正在更换外网链接，完成后会显示新网址。'
     if ($WithPlatform) {
         Stop-Platform
         Start-Sleep -Milliseconds 800
     }
     Stop-TunnelProcesses | Out-Null
-    $changed = New-LifecycleTunnel
-    # New-LifecycleTunnel 在平台未运行或没有识别新地址时会自己启动平台。
-    if (($WithPlatform -or -not (Test-PlatformUp)) -and -not (Test-PlatformUp)) {
-        Write-Step '正在启动平台…'
-        Start-PlatformDetached
-    }
+    $result = New-LifecycleTunnel
     Show-Links (Get-CurrentTunnelInfo).HostName $true
+    if (-not $result.Ready) {
+        Write-Line ''
+        Write-Host ('  提示：新网址已写入并加载，但当前验证未通过。稍后可双击“启动外网.cmd”复查。') -ForegroundColor Yellow
+    }
 }
 
 function Show-Status {
@@ -602,6 +605,7 @@ function Stop-TestPlatform {
 }
 
 function Invoke-SelfTest {
+    if (-not $TestRoot -or $Root -eq $RealRoot) { throw '测试模式必须指定独立的 -TestRoot。' }
     $script:OfflineTest = $true
     $script:TestMode = $true
     $env:LOOPBACK_TEST = '1'
@@ -609,7 +613,8 @@ function Invoke-SelfTest {
     Write-Host '  —— 自动化回归测试（虚构数据，不使用真实数据库）——' -ForegroundColor Cyan
 
     $before = @(Read-EnvLines)
-    $changed = New-LifecycleTunnel
+    $result = New-LifecycleTunnel
+    $changed = $result.Changed
     $after = @(Read-EnvLines)
     $hostname = Get-EnvValue 'PLATFORM_PUBLIC_HOST'
     $diff = Compare-Object -ReferenceObject $before -DifferenceObject $after
@@ -620,13 +625,11 @@ function Invoke-SelfTest {
     Stop-TestPlatform
     $tunnel = Start-TunnelDetached
     Write-Ok ('第二次建链接得到新域名：' + $tunnel.HostName)
-    $simulated = Join-Path $env:TEMP ('tunnel-stub-' + $tunnel.HostName + '.txt')
-    [IO.File]::WriteAllText($simulated, 'OK', $Utf8)
     $ready = Wait-TunnelReady $tunnel.HostName
-    Remove-Item -LiteralPath $simulated -ErrorAction SilentlyContinue
     Write-Ok ('新链接就绪检查通过：' + $ready)
     $final = Update-PublicHost $tunnel.HostName
     Write-Ok ('再次更新 .env，地址变化：' + $final)
+    Ensure-PlatformUsesHost $tunnel.HostName
     $uses = Confirm-PlatformUsesHost $tunnel.HostName
     Write-Ok ('平台配置已识别新域名：' + $uses)
     Save-StatusFile $tunnel.HostName ([string]$tunnel.ProcessId) '测试'
@@ -644,8 +647,15 @@ function Invoke-SelfTest {
     Write-Ok '全部回归测试步骤执行完毕。'
 }
 
+$launchLock = $null
+$exitCode = 0
 try {
     Initialize-Config
+    if ($Mode -in @('Start', 'Restart', 'RestartAll')) {
+        $lockFile = Join-Path $Runtime ('tunnel-{0}.lock' -f $script:Port)
+        try { $launchLock = [IO.File]::Open($lockFile, 'OpenOrCreate', 'ReadWrite', 'None') }
+        catch { throw '无法取得启动锁。若另一个窗口正在启动平台，请等它完成。' }
+    }
     switch ($Mode) {
         'Status' { Show-Status }
         'Start' { Invoke-Start }
@@ -654,13 +664,16 @@ try {
         'Test' { Invoke-SelfTest }
     }
 } catch {
+    $exitCode = 1
     Write-Line ''
     Write-Fail ('操作没有完成：' + $_.Exception.Message)
     Write-Line '  平台数据没有改动。可把本窗口的内容截图留作排查。'
 } finally {
+    if ($launchLock) { $launchLock.Dispose() }
     if (-not $NoPause) {
         Write-Line ''
         Write-Line '  按回车键关闭本窗口（关闭窗口不会停止平台和隧道）。'
         [void](Read-Host)
     }
 }
+exit $exitCode

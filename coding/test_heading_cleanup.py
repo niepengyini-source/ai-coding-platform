@@ -34,7 +34,7 @@ class HeadingCleanupTests(TestCase):
 
     def test_project_keeps_import_coding_and_version_list(self):
         response = self.clean_page(f'/p/{self.project.id}/', self.project.name)
-        for text in ['导入材料', '上传并预览', '编码进度', '选择归档范围',
+        for text in ['补充材料', '上传并预览', '编码进度', '选择归档范围',
                      self.book.title, '当前编码本']:
             self.assertContains(response, text)
         self.assertNotContains(response, '>项目概览</div>')
@@ -77,7 +77,7 @@ class HeadingCleanupTests(TestCase):
 
     def test_exports_keeps_download_controls_and_version_selector(self):
         response = self.clean_page(f'/p/{self.project.id}/exports/', '导出中心')
-        for text in ['下一步：选择导出记录', '下载导出文件', '选择格式',
+        for text in ['查看记录', '下载导出文件', '导出文件',
                      '自定义字段', f'v{self.book.version} · {self.book.title}']:
             self.assertContains(response, text)
         self.assertNotContains(response, '下载到你的电脑')

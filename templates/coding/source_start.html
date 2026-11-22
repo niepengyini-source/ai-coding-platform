@@ -1,14 +1,23 @@
 {% extends 'base.html' %}
 {% block title %}开始编码 · {{ project.name }}{% endblock %}
 {% block content %}
+<div class="task-page import-page">
 <div class="page-heading"><h1>开始编码</h1><p>{{ project.name }}</p></div>
 {% if error %}<div class="notice danger" role="alert">{{ error }}</div>{% endif %}
-<section class="card narrow start-confirmation">
+<section class="card start-confirmation">
   <h2>{% if source_preview.normalized.type == 'image' %}图片区域编码{% else %}阅读原文，随时划选编码{% endif %}</h2>
   <p>划选文字或选择图片区域后，在右侧选择代码，再保存。{% if role == 'owner' or role == 'reviewer' %}没有现成代码也可以边阅读边新增。{% endif %}</p>
-  {% if source_preview %}<p class="hint">直接使用这份已导入材料，不需要重新上传或新建项目。已有编码记录会保留。</p>{% endif %}
-  {% if book %}<p class="hint">{{ book.title }} · v{{ book.version }} · {{ book.get_policy_display }}{% if not book.codes.exists %}。还没有代码也可以开始，代码会随工作逐步积累。{% endif %}</p>{% endif %}
+  {% if prepare_codebook %}<p>手头有整理好的编码本，可以先导入。也可以直接编码，边读边积累代码。</p>{% elif source_preview %}<p class="hint">直接使用这份已导入材料，不需要重新上传或新建项目。已有编码记录会保留。</p>{% endif %}
+  {% if book_ready %}<p class="hint">当前编码本 · {{ book.title }} · v{{ book.version }} · {{ book.get_policy_display }}</p>{% endif %}
   {% if source_preview %}<p><strong>{{ source_preview.name }}</strong></p>{% if source_preview.normalized.type != 'image' %}<blockquote class="preserve">{{ source_preview.records.first.text|truncatechars:500 }}</blockquote>{% endif %}{% elif documents %}<ul>{% for item in documents %}<li>{{ item.name }}</li>{% endfor %}</ul>{% endif %}
-  <form method="post">{% csrf_token %}{% if token %}<input type="hidden" name="token" value="{{ token }}">{% endif %}{% if document_id %}<input type="hidden" name="document_id" value="{{ document_id }}">{% endif %}{% if book %}<input type="hidden" name="book_id" value="{{ book.id }}">{% endif %}<button class="button" type="submit">{% if resume_round %}继续编码{% else %}开始编码{% endif %} →</button></form>
+  <form method="post" class="button-row">
+    {% csrf_token %}
+    {% if token %}<input type="hidden" name="token" value="{{ token }}">{% endif %}
+    {% if document_id %}<input type="hidden" name="document_id" value="{{ document_id }}">{% endif %}
+    {% if book %}<input type="hidden" name="book_id" value="{{ book.id }}">{% endif %}
+    {% if prepare_codebook %}<a class="button" href="{% url 'source_book_import' project.id book.id source_preview.id %}">导入编码本</a>{% endif %}
+    <button class="button{% if prepare_codebook %} secondary{% endif %}" type="submit">{% if prepare_codebook %}跳过，开始自主编码{% elif resume_round %}继续编码{% elif source_preview and book_ready %}使用当前编码本开始编码{% else %}开始编码 →{% endif %}</button>
+  </form>
 </section>
+</div>
 {% endblock %}

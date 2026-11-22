@@ -18,7 +18,7 @@ def _memberships(user):
 
 @login_required
 def entry(request):
-    return render(request, 'coding/home.html', {'workspace_entry': True})
+    return projects(request)
 
 
 @login_required
@@ -28,8 +28,7 @@ def projects(request):
     _add_collaboration_cards(memberships, request.user)
     from .source_progress import attach_project_cards
     attach_project_cards(memberships, request.user)
-    return render(request, 'coding/projects.html', {
-        'memberships': memberships})
+    return render(request, 'coding/projects.html', {'memberships': memberships})
 
 
 def _add_coding_progress(memberships, user):

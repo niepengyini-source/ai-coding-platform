@@ -54,32 +54,24 @@
     <div class="source-coding-fields">
       <div class="source-selection-preview"><p class="hint" data-source-selection-hint>{% if reading_document.normalized.type == 'image' %}选择整张图片或框选区域，然后选代码并保存。{% else %}划选一句或连续几段文字，在这里选择代码并保存。{% endif %}</p><blockquote data-source-selection-text hidden></blockquote><small class="hint" data-source-selection-position></small></div>
       <div class="source-overlap-list" data-source-overlap-list hidden><p class="hint">这里有多个已保存片段，请选择要查看的记录。</p></div>
-      {% if source_data.can_add_codes %}
-      <section class="source-new-code" data-source-new-code aria-labelledby="source-open-code-title">
-        <h3 id="source-open-code-title">????</h3>
-        <form method="post" action="{{ source_data.urls.codes }}" data-source-code-form>
-          {% csrf_token %}
-          <div class="source-new-code-entry">
-            <label class="sr-only" for="source-code-name">?????</label>
-            <input id="source-code-name" name="name" maxlength="100" required autocomplete="off" placeholder="???????">
-            <button class="button secondary" type="submit">????</button>
-          </div>
-          <details><summary>????????</summary>
-            <label class="sr-only" for="source-code-definition">????</label>
-            <textarea id="source-code-definition" name="definition" rows="2" maxlength="10000"></textarea>
-          </details>
-          <p class="hint" data-source-code-status role="status" aria-live="polite"></p>
-        </form>
-      </section>
-      {% endif %}
       <form method="post" action="{{ source_data.urls.annotations }}" data-source-annotation-form>{% csrf_token %}<fieldset data-source-fields disabled><legend class="sr-only">为当前选中片段编码</legend>
+        {% if source_data.can_add_codes %}
+        <div class="source-new-code" data-source-new-code>
+          <label class="sr-only" for="source-code-name">新代码名称</label>
+          <input id="source-code-name" name="new_code_name" maxlength="100" autocomplete="off" placeholder="请写入代码">
+          <details><summary>填写代码定义（可选）</summary>
+            <label class="sr-only" for="source-code-definition">代码定义</label>
+            <textarea id="source-code-definition" name="new_code_definition" rows="2" maxlength="10000"></textarea>
+          </details>
+        </div>
+        {% endif %}
         <label class="sr-only" for="source-code-search">搜索代码</label><input type="search" id="source-code-search" data-source-code-search placeholder="搜索代码、名称或定义" autocomplete="off">
         <div class="source-code-list" data-source-code-list></div>
         <label class="check-line"><input type="checkbox" name="no_code">明确没有适用代码</label>
         <label class="check-line"><input type="checkbox" name="uncertain">需复核</label>
         <label for="source-note">备注（可选；需复核时请说明原因）</label><textarea id="source-note" name="note" rows="3" maxlength="5000" placeholder="判断依据或疑点"></textarea>
       </fieldset></form>
-      <p class="source-empty-code-hint hint" data-source-empty-codes hidden>{% if source_data.can_add_codes %}还没有代码。展开“新增代码”，先命名即可开始。{% else %}项目还没有代码，请联系负责人添加；仍可阅读原文。{% endif %}</p>
+      {% if not source_data.can_add_codes %}<p class="source-empty-code-hint hint" data-source-empty-codes hidden>项目还没有代码，请联系负责人添加。</p>{% endif %}
     </div>
     <footer class="source-coding-actions"><button class="button" type="button" data-source-save disabled>保存当前片段</button><p class="hint source-save-status" data-source-status role="status" aria-live="polite">等待划选</p><button class="text-button" type="button" data-source-reload hidden>刷新并核对最新记录</button><div class="source-completion"><button class="button secondary" type="button" data-source-complete {% if round.state == 'closed' %}disabled{% endif %}>{% if source_task.completed %}继续编辑本份材料{% else %}本份材料编码完成{% endif %}</button><p class="hint">保存片段不移动阅读位置。<kbd>Ctrl+Enter</kbd> 保存</p></div></footer>
   </section>
