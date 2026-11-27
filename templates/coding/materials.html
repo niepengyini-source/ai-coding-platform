@@ -1,4 +1,4 @@
-{% extends 'base.html' %}{% block content %}
+{% extends 'base.html' %}{% block title %}导入材料 · {{ project.name }} · AI辅助编码平台{% endblock %}{% block content %}
 <div class="task-page import-page">
 <div class="page-heading"><h1>导入材料</h1><p>选择文件，核对内容后确认导入。</p></div>
 {% if workflow.preparation %}{% include 'coding/workflow_hint.html' with compact=True %}{% endif %}

@@ -1,6 +1,17 @@
 {% extends 'base.html' %}{% block title %}我的项目 · AI辅助编码平台{% endblock %}{% block content %}
 <section class="workspace-projects">
-  <div class="page-heading heading-row"><h1>我的项目</h1>{% if memberships %}<div class="button-row workspace-project-heading-actions"><a class="button secondary" href="{% url 'join_group' %}">用邀请码加入</a><a class="button" href="{% url 'project_new' %}">创建项目</a></div>{% endif %}</div>
+  <div class="page-heading heading-row"><h1>我的项目</h1><div class="button-row workspace-project-heading-actions">{% if trashed_count %}<a class="button secondary" href="{% url 'projects_trash' %}">回收站 ({{ trashed_count }})</a>{% endif %}{% if memberships %}<a class="button secondary" href="{% url 'join_group' %}">用邀请码加入</a><a class="button" href="{% url 'project_new' %}">创建项目</a>{% endif %}</div></div>
+  {% if received_invitations %}
+  <section class="card direct-invite-banner" aria-label="收到的项目邀请">
+    <h2>收到的项目邀请（{{ received_invitations|length }}）</h2>
+    {% for inv in received_invitations %}
+    <div class="list-row">
+      <div><strong>{{ inv.project.name }}</strong><span class="badge indigo">{{ inv.get_role_display }}</span><small class="block muted">邀请人：{{ inv.inviter.username }} · {{ inv.created_at|date:'Y.m.d H:i' }}</small></div>
+      <form action="{% url 'direct_invite_respond' inv.id %}" method="post" class="button-row">{% csrf_token %}<button class="button" type="submit" name="action" value="accept">同意加入</button><button class="button secondary" type="submit" name="action" value="decline">暂不加入</button></form>
+    </div>
+    {% endfor %}
+  </section>
+  {% endif %}
   {% if memberships %}<div class="workspace-project-list">
     {% for membership in memberships %}<article class="card workspace-project-card" aria-labelledby="project-title-{{ membership.project.id }}">
       <div class="workspace-project-main">
@@ -25,11 +36,11 @@
         <p class="workspace-collaboration">{% if membership.collaboration_label %}<strong>{{ membership.collaboration_label }}</strong>{% endif %}<span>项目成员 {{ membership.member_count }} 人{% if membership.assignment_coder_count %} · 本轮有任务 {{ membership.assignment_coder_count }} 人{% endif %}</span></p></div>
         <dl class="workspace-project-times"><div><dt>{{ membership.activity_label }}</dt><dd>{% if membership.last_coded_at %}<time datetime="{{ membership.last_coded_at|date:'c' }}">{{ membership.last_coded_at|date:'Y.m.d H:i' }}</time>{% else %}尚无编码记录{% endif %}</dd></div><div><dt>创建时间</dt><dd><time datetime="{{ membership.project.created_at|date:'c' }}">{{ membership.project.created_at|date:'Y.m.d H:i' }}</time></dd></div><div><dt>最后更新</dt><dd><time datetime="{{ membership.project_updated_at|date:'c' }}">{{ membership.project_updated_at|date:'Y.m.d H:i' }}</time></dd></div></dl>
         <div class="workspace-project-actions">{% if membership.role != 'viewer' %}<div class="project-task-actions">{% if membership.team_task_url %}<a class="button secondary" href="{{ membership.team_task_url }}">{{ membership.team_task_label }}</a>{% endif %}<a class="button secondary" href="{{ membership.personal_task_url }}">{{ membership.personal_task_label }}</a></div>{% endif %}
-          {% if membership.role == 'owner' or membership.role == 'reviewer' %}<a href="{% url 'progress' membership.project.id %}">成员进度</a>{% endif %}
+          <div class="project-task-actions">{% if membership.role == 'owner' or membership.role == 'reviewer' %}<a href="{% url 'progress' membership.project.id %}">成员进度</a>{% endif %}{% if membership.role == 'owner' %}<form action="{% url 'project_trash' membership.project.id %}" method="post" data-confirm="将项目「{{ membership.project.name }}」移入回收站？移入后全部内容保留，可随时在回收站恢复或彻底删除。">{% csrf_token %}<button class="text-button danger-text" type="submit">移入回收站</button></form>{% endif %}</div>
         </div>
       </details>
     </article>{% endfor %}
   </div>{% else %}<div class="workspace-empty"><h2>还没有项目</h2><p>创建项目后，即可导入材料。</p><div class="button-row"><a class="button workspace-create" href="{% url 'project_new' %}">创建第一个项目</a><a class="button secondary" href="{% url 'join_group' %}">用邀请码加入</a></div></div>{% endif %}
-  <div class="workspace-help"><a href="{% url 'guide' %}">使用帮助</a></div>
+  <div class="workspace-help"><a href="{% url 'guide' %}">使用帮助</a> · <a href="{% url 'projects_trash' %}">项目回收站{% if trashed_count %} ({{ trashed_count }}){% endif %}</a></div>
 </section>
 {% endblock %}

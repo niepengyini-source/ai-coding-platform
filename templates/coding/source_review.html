@@ -1,0 +1,107 @@
+{% extends 'base.html' %}
+{% block title %}整篇编码汇总与对比 · {{ round.name }} · {{ project.name }}{% endblock %}
+{% block content %}
+<div class="page-heading heading-row">
+  <div>
+    <h1>{{ round.name }} <span class="badge {% if round.sampling.collab_mode == 'sync' %}indigo{% else %}green{% endif %}">{% if round.sampling.collab_mode == 'sync' %}同步协作模式{% else %}各自独立编码{% endif %}</span></h1>
+    <p>整篇材料多人选段汇总与对比 · 原始个人划选记录完整保留，可导出全组汇总表。</p>
+  </div>
+  <div class="button-row">
+    <a class="button secondary" href="{% url 'source_export' round.id %}?format=xlsx&amp;scope=all">导出全组明细（Excel）</a>
+    <a class="button secondary" href="{% url 'source_export' round.id %}?format=docx&amp;scope=all">导出代码汇总（Word）</a>
+    <a class="button secondary" href="{% url 'workbench' round.id %}">返回工作台</a>
+  </div>
+</div>
+{% include 'coding/workflow_hint.html' %}
+{% if can_manage_round %}
+<section class="card compact">
+  <div class="section-heading">
+    <div>
+      <strong>轮次状态：{{ round.get_state_display }}</strong>
+      <span class="hint">{% if round.state == 'active' %}{% if all_done %}全员已完成本轮整篇编码，可锁定进入协商定稿。{% else %}仍有成员正在编码；全部完成后可锁定进入正式对比。{% endif %}{% elif round.state == 'review' %}当前处于协商对比阶段，个人记录已只读锁定。{% else %}本轮已归档，只读查看。{% endif %}</span>
+    </div>
+    <div class="button-row">
+      {% if round.state == 'active' and all_done %}
+      <form action="{% url 'round_manage' round.id %}" method="post" data-confirm="进入协商后将公开各成员在本轮的独立选段与代码，确认进入？">{% csrf_token %}<input type="hidden" name="revision" value="{{ round.revision }}"><button class="button" type="submit" name="action" value="lock">进入协商对比</button></form>
+      {% elif round.state == 'review' %}
+      <form action="{% url 'round_manage' round.id %}" method="post" data-confirm="结束后本轮保持只读归档，确认结束本轮？">{% csrf_token %}<input type="hidden" name="revision" value="{{ round.revision }}"><button class="button" type="submit" name="action" value="close">结束本轮归档</button></form>
+      {% endif %}
+    </div>
+  </div>
+</section>
+{% endif %}
+
+<section class="card">
+  <h2>成员完成情况</h2>
+  <div class="table-wrap">
+    <table>
+      <thead><tr><th>成员</th><th>已完成材料 / 分配材料</th><th>已保存选段数</th><th>状态</th></tr></thead>
+      <tbody>
+        {% for m in member_stats %}
+        <tr>
+          <td><strong>{{ m.username }}</strong></td>
+          <td>{{ m.done }} / {{ m.total }}</td>
+          <td>{{ m.annotations }} 个片段</td>
+          <td>{% if m.done == m.total and m.total > 0 %}<span class="badge green">已完成</span>{% else %}<span class="badge amber">编码中</span>{% endif %}</td>
+        </tr>
+        {% empty %}<tr><td colspan="4" class="empty-cell">暂无分配记录。</td></tr>{% endfor %}
+      </tbody>
+    </table>
+  </div>
+</section>
+
+{% if private_codes %}
+<section class="card">
+  <h2>成员独立新建的开放代码（{{ private_codes|length }} 个）</h2>
+  <p class="hint">在“各自独立编码”模式下，成员阅读时自建的代码默认仅本人可见。你可将有价值的代码一键采纳进项目共享编码本供后续轮次复用。</p>
+  <div class="table-wrap">
+    <table>
+      <thead><tr><th>代码</th><th>名称</th><th>创建成员</th><th>定义</th><th>操作</th></tr></thead>
+      <tbody>
+        {% for c in private_codes %}
+        <tr>
+          <td><span class="code-key">{{ c.key }}</span></td>
+          <td><strong>{{ c.name }}</strong></td>
+          <td>{{ c.private_coder.username }}</td>
+          <td class="preserve">{{ c.definition|default:'—' }}</td>
+          <td><form action="{% url 'promote_private_code' round.id c.id %}" method="post">{% csrf_token %}<button class="button secondary" type="submit">采纳为共享代码</button></form></td>
+        </tr>
+        {% endfor %}
+      </tbody>
+    </table>
+  </div>
+</section>
+{% endif %}
+
+{% if documents|length > 1 %}
+<nav class="page-switch" aria-label="选择材料对比">
+  {% for doc in documents %}<a href="?document={{ doc.id }}"{% if selected_document and doc.id == selected_document.id %} aria-current="page"{% endif %}>{{ doc.name }}</a>{% endfor %}
+</nav>
+{% endif %}
+
+<section class="card">
+  <div class="section-heading">
+    <h2>{% if selected_document %}{{ selected_document.name }} · 各成员划选片段对照{% else %}划选片段对照{% endif %}</h2>
+    <span class="muted">共 {{ doc_annotations|length }} 条记录（按原文位置排序）</span>
+  </div>
+  <div class="table-wrap">
+    <table>
+      <thead><tr><th>原文位置</th><th>编码员</th><th>划选原文片段</th><th>编码结果</th><th>备注</th></tr></thead>
+      <tbody>
+        {% for row in doc_annotations %}
+        <tr>
+          <td><span class="badge">{{ row.location }}</span><small class="block muted">{{ row.updated_at|date:'m-d H:i' }}</small></td>
+          <td><strong>{{ row.coder }}</strong></td>
+          <td class="preserve">{{ row.text|truncatechars:260 }}</td>
+          <td>
+            {% if row.no_code %}<span class="badge">明确无适用代码</span>{% else %}{% for name in row.codes %}<span class="badge indigo">{{ name }}</span> {% empty %}<span class="muted">未选码</span>{% endfor %}{% endif %}
+            {% if row.uncertain %}<span class="badge amber">需复核</span>{% endif %}
+          </td>
+          <td class="preserve">{{ row.note|default:'—' }}</td>
+        </tr>
+        {% empty %}<tr><td colspan="5" class="empty-cell">该份材料下暂无已保存的选段记录。</td></tr>{% endfor %}
+      </tbody>
+    </table>
+  </div>
+</section>
+{% endblock %}

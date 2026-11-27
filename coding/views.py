@@ -36,7 +36,8 @@ from .ai_recommendations import workbench_context
 
 
 def access(request, project_id, roles=None):
-    m = get_object_or_404(Membership.objects.select_related('project'), project_id=project_id, user=request.user)
+    m = get_object_or_404(Membership.objects.select_related('project'),
+                          project_id=project_id, user=request.user, project__trashed_at__isnull=True)
     if roles and m.role not in roles:
         raise PermissionDenied
     return m.project, m.role
@@ -185,10 +186,13 @@ def members(request, project_id):
     for application in requests_page:
         application.review_form = JoinReviewForm(auto_id=f'request-{application.id}-%s',
             initial={'revision': application.revision, 'role': 'coder'})
+    from .collaborator_invites import historical_collaborators, pending_direct_invites
     return render(request, 'coding/members.html', {'project': project, 'role': role, 'form': form,
         'members': project.memberships.select_related('user'), 'invitation': invitation, 'new_code': new_code,
         'invite_form': InvitationForm(initial={'revision': invitation.revision if invitation else 0, 'days': 7}),
-        'now': timezone.now(), 'requests_page': requests_page})
+        'now': timezone.now(), 'requests_page': requests_page,
+        'historical_members': historical_collaborators(project, request.user),
+        'sent_direct_invites': pending_direct_invites(project)})
 
 
 @login_required
@@ -426,7 +430,7 @@ def codebook(request, project_id, book_id):
                     messages.success(request, '代码已保存。')
                     return redirect('codebook', project.id, book.id)
     return render(request, 'coding/codebook.html', {'project': project, 'role': role, 'book': book,
-        'codes': book.codes.select_related('parent'), 'form': form, 'editing': code.pk,
+        'codes': book.codes.filter(private_coder__isnull=True).select_related('parent'), 'form': form, 'editing': code.pk,
         'book_form': BookForm(initial={'title': book.title, 'policy': book.policy}),
         'current_book': project.codebooks.first(),
         'book_history': project.codebooks.exclude(pk=book.pk),
@@ -765,21 +769,31 @@ def round_manage(request, round_id):
             action, reason = request.POST.get('action'), request.POST.get('reason', '').strip()[:2000]
             old = {'state': r.state, 'cycle': r.cycle}
             if action == 'lock':
-                if r.state != 'active' or r.assignments.filter(status='draft', superseded=False).exists():
+                if r.sampling.get('source_coding'):
+                    if r.state != 'active' or not r.source_tasks.exists() or r.source_tasks.filter(completed=False).exists():
+                        raise ValueError('请等待本轮全员标记“本份材料编码完成”后，再锁定进入协商对比。')
+                elif r.state != 'active' or r.assignments.filter(status='draft', superseded=False).exists():
                     raise ValueError('必须全部独立提交后才能进入协商；未完成任务可在各自工作台标记不确定并写原因。')
                 r.state = 'review'
             elif action == 'reopen':
                 if r.state != 'review' or not reason:
                     raise ValueError('仅协商中的轮次可重开，且必须说明理由；归档轮次不改写。')
                 r.state, r.cycle = 'active', r.cycle + 1
-                r.assignments.filter(superseded=False).update(status='draft', last_token='', revision=F('revision') + 1)
+                if r.sampling.get('source_coding'):
+                    r.source_tasks.update(completed=False, revision=F('revision') + 1)
+                else:
+                    r.assignments.filter(superseded=False).update(status='draft', last_token='', revision=F('revision') + 1)
                 # Previously visible answers cannot become blind again.
                 # Keep the round labelled re-opened; a NEW round is required for new independent reliability.
             elif action == 'close':
-                unit_ids = set(r.assignments.filter(superseded=False).values_list('unit_id', flat=True))
-                valid = set(r.decisions.filter(cycle=r.cycle, uncertain=False).values_list('unit_id', flat=True))
-                if r.state != 'review' or unit_ids != valid:
-                    raise ValueError('每个单元都需要本轮有效的、非待裁定的最终结论才能归档。')
+                if r.sampling.get('source_coding'):
+                    if r.state != 'review':
+                        raise ValueError('请先进入协商核对结果后，再结束归档本轮。')
+                else:
+                    unit_ids = set(r.assignments.filter(superseded=False).values_list('unit_id', flat=True))
+                    valid = set(r.decisions.filter(cycle=r.cycle, uncertain=False).values_list('unit_id', flat=True))
+                    if r.state != 'review' or unit_ids != valid:
+                        raise ValueError('每个单元都需要本轮有效的、非待裁定的最终结论才能归档。')
                 r.state = 'closed'
             else:
                 raise ValueError('无效状态操作。')
@@ -789,6 +803,11 @@ def round_manage(request, round_id):
         messages.success(request, '状态已更新。重开不抹去历史；需要新的独立信度时请新建轮次。')
     except (ValueError, OperationalError) as error:
         messages.error(request, str(error))
+    if r.sampling.get('source_coding'):
+        if r.state != 'active':
+            return redirect('disagreements', r.id)
+        if not r.source_tasks.filter(coder=request.user).exists():
+            return redirect('progress', r.project_id)
     return redirect('workbench', r.id)
 
 
@@ -836,6 +855,9 @@ def assignment_reopen(request, assignment_id):
 @login_required
 def review(request, round_id):
     r, role = round_access(request, round_id)
+    if r.sampling.get('source_coding'):
+        from .source_rounds import source_review_view
+        return source_review_view(request, round_id)
     review_access(request, r, role)
     ids = list(r.assignments.filter(superseded=False).values_list('unit_id', flat=True).distinct().order_by('unit_id'))
     selected_page = request.GET.get('page')
@@ -865,6 +887,9 @@ def review(request, round_id):
 @login_required
 def disagreement_queue(request, round_id):
     r, role = round_access(request, round_id)
+    if r.sampling.get('source_coding'):
+        from .source_rounds import source_review_view
+        return source_review_view(request, round_id)
     review_access(request, r, role)
     rows = disagreement_rows(r)
     counts = {'all': len(rows), 'attention': sum(row['needs_attention'] for row in rows),

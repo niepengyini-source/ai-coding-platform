@@ -7,7 +7,7 @@
 <link rel="stylesheet" href="{% static 'shortcuts.css' %}">
 <link rel="stylesheet" href="{% static 'source_information.css' %}">
 <link rel="stylesheet" href="{% static 'app.css' %}"><link rel="stylesheet" href="{% static 'controls.css' %}"><link rel="stylesheet" href="{% static 'workspace.css' %}"><link rel="stylesheet" href="{% static 'journey.css' %}"><script src="{% static 'app.js' %}" defer></script><script src="{% static 'code_picker.js' %}" defer></script><script src="{% static 'splitting.js' %}" defer></script><script src="{% static 'navigation.js' %}" defer></script><script src="{% static 'file_tools.js' %}" defer></script><script src="{% static 'workflow.js' %}" defer></script><script src="{% static 'archiving.js' %}" defer></script><script src="{% static 'shortcuts.js' %}" defer></script><script src="{% static 'task_navigation.js' %}" defer></script><link rel="stylesheet" href="{% static 'platform.css' %}"><script src="{% static 'shell.js' %}" defer></script>{% block page_assets %}{% endblock %}</head>
-{% with layout_page=request.resolver_match.url_name %}{% project_workflow as workflow %}<body class="{% if not user.is_authenticated or workspace_entry or layout_page == 'login' or layout_page == 'register' %}workspace-layout{% endif %}{% if layout_page == 'workbench' %} coding-workbench{% else %} platform-page{% endif %}" data-navigation-user="{% if user.is_authenticated %}{{ user.pk }}{% else %}anonymous{% endif %}">
+{% with layout_page=request.resolver_match.url_name %}{% project_workflow as workflow %}{% project_stage_bar as stage_bar %}<body class="{% if not user.is_authenticated or workspace_entry or layout_page == 'login' or layout_page == 'register' %}workspace-layout{% endif %}{% if layout_page == 'workbench' %} coding-workbench{% else %} platform-page{% endif %}" data-navigation-user="{% if user.is_authenticated %}{{ user.pk }}{% else %}anonymous{% endif %}">
 {% if user.is_authenticated and layout_page != 'login' and layout_page != 'register' %}
 <aside class="sidebar">
   <a class="brand" aria-label="AI辅助编码平台" href="{% url 'home' %}"><span class="brand-symbol">A</span><span>AI辅助编码平台<small>协作 · 判断 · 追溯</small></span></a>
@@ -20,19 +20,19 @@
   <div id="project-navigation" class="nav-project-children" hidden>
   <a class="nav-item"{% if layout_page == 'materials' or layout_page == 'document_prepare' %} aria-current="location"{% endif %} href="{% url 'units' project.id %}">{% include 'coding/nav_label.html' with icon='materials' label='材料' %}</a>
   {% with latest=project.codebooks.first %}{% if latest %}<a class="nav-item"{% if layout_page == 'code_references' or layout_page == 'book_import' or layout_page == 'source_book_import' or layout_page == 'codebook' and book.pk != latest.pk %} aria-current="location"{% endif %} href="{% url 'codebook' project.id latest.id %}">{% include 'coding/nav_label.html' with icon='rules' label='编码规则' %}</a>{% endif %}{% endwith %}
-  {% if role != 'viewer' %}<a class="nav-item" href="{% url 'coding_entry' project.id %}">{% include 'coding/nav_label.html' with icon='code' label='开始 / 继续编码' %}</a>{% endif %}
+  {% if role != 'viewer' %}<a class="nav-item"{% if layout_page == 'quick_start' or layout_page == 'source_start' %} aria-current="location"{% endif %} href="{% url 'coding_entry' project.id %}">{% include 'coding/nav_label.html' with icon='code' label='开始 / 继续编码' %}</a>{% endif %}
   <a class="nav-item"{% if layout_page == 'history_detail' or layout_page == 'history_reopen' %} aria-current="location"{% endif %} href="{% url 'history' project.id %}">{% include 'coding/nav_label.html' with icon='history' label='历史记录' %}</a>
   <a class="nav-item" href="{% url 'exports' project.id %}">{% include 'coding/nav_label.html' with icon='export' label='导出' %}</a>
   <a class="nav-item" href="{% url 'archive' project.id %}">{% include 'coding/nav_label.html' with icon='archive' label='项目备份与归档' %}</a>
   </div></div>
   <details class="nav-management"><summary>项目管理</summary>
   <a class="nav-item" href="{% url 'progress' project.id %}">{% include 'coding/nav_label.html' with icon='progress' label='编码进度' %}</a>
-  {% if role == 'owner' %}<a class="nav-item" href="{% url 'members' project.id %}">{% include 'coding/nav_label.html' with icon='members' label='项目成员' %}</a>{% endif %}
+  {% if role == 'owner' %}<a class="nav-item"{% if layout_page == 'team_setup' %} aria-current="location"{% endif %} href="{% url 'members' project.id %}">{% include 'coding/nav_label.html' with icon='members' label='项目成员' %}</a>{% endif %}
   {% if role == 'owner' or role == 'reviewer' %}<a class="nav-item" href="{% url 'round_new' project.id %}">{% include 'coding/nav_label.html' with icon='tasks' label='安排编码任务' %}</a>{% endif %}
   {% if round %}<div class="nav-label">当前轮次</div><a class="nav-item" href="{% url 'workbench' round.id %}">{% include 'coding/nav_label.html' with icon='workbench' label='编码工作台' %}</a>{% if round.kind != 'quick' %}{% if round.state != 'active' or round.kind == 'training' %}<a class="nav-item" href="{% url 'disagreements' round.id %}">{% include 'coding/nav_label.html' with icon='review' label='分歧与疑点清单' %}</a><a class="nav-item" href="{% url 'review' round.id %}">{% include 'coding/nav_label.html' with icon='review' label='逐条协商定稿' %}</a>{% endif %}
   {% if round.state != 'active' %}{% if role == 'owner' or role == 'reviewer' %}<a class="nav-item" href="{% url 'reliability' round.id %}">{% include 'coding/nav_label.html' with icon='progress' label='一致性报告' %}</a>{% endif %}{% endif %}{% endif %}{% endif %}
   </details>{% endif %}<a href="{% url 'guide' %}{% if project %}?project={{ project.id }}{% if round %}&amp;round={{ round.id }}{% endif %}{% endif %}" class="nav-item">{% include 'coding/nav_label.html' with icon='help' label='使用帮助' %}</a></nav>
-  <div class="sidebar-note"><span class="dot"></span> 人工编码模式</div>
+  <div class="sidebar-note">人工编码模式</div>
 </aside>
 {% endif %}
 <div class="shell"><header class="topbar">
@@ -50,7 +50,8 @@
 {% endif %}
 {% if user.is_authenticated %}<details class="workbench-menu account-menu" data-workbench-menu><summary class="avatar" aria-label="账号菜单：{{ user.username }}" title="{{ user.username }}">{{ user.username|slice:':1'|upper }}</summary><div class="workbench-menu-panel"><p class="account-menu-name">{{ user.username }}</p><a href="{% url 'password_change' %}">修改密码</a><form action="{% url 'logout' %}" method="post">{% csrf_token %}<button type="submit">退出登录</button></form></div></details>{% endif %}
 </header>
-<main id="main" class="content">
+<main id="main" class="content page-{{ layout_page }}">
+{% include 'coding/stage_bar.html' %}
 {% for message in messages %}<div class="notice {% if message.tags == 'error' %}danger{% endif %}" role="status">{{ message }}{% if project %}{% if message.extra_tags == 'setup-materials' %} {% if role == 'owner' or role == 'reviewer' %}<a class="button secondary" href="{% url 'materials' project.id %}#material-upload">导入编码材料 →</a>{% else %}<a class="button secondary" href="{% url 'units' project.id %}">查看材料 →</a>{% endif %}{% elif message.extra_tags == 'setup-codebook' %}{% with latest=project.codebooks.first %}{% if latest %} {% if role == 'owner' or role == 'reviewer' %}<a class="button secondary" href="{% url 'book_import' project.id latest.id %}">导入编码本 →</a>{% else %}<a class="button secondary" href="{% url 'codebook' project.id latest.id %}">查看规则 →</a>{% endif %}{% endif %}{% endwith %}{% endif %}{% endif %}</div>{% endfor %}{% block content %}{% endblock %}</main>
 <footer class="app-footer">AI辅助编码平台</footer></div>
 <script src="{% static 'scrolling.js' %}" defer></script><script src="{% static 'unsplitting.js' %}" defer></script>

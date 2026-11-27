@@ -1,8 +1,9 @@
 {% extends 'base.html' %}
 {% load static %}
+{% block title %}导出中心 · {{ project.name }} · AI辅助编码平台{% endblock %}
 {% block content %}
 <div class="task-page export-page">
-<div class="page-heading heading-row"><h1>导出中心</h1><a href="{% url 'archive' project.id %}">备份与归档</a></div>
+<div class="page-heading heading-row"><h1>导出中心</h1><a class="button secondary" href="{% url 'archive' project.id %}">备份与归档</a></div>
 <nav class="page-switch" aria-label="导出类型"><a href="{% url 'exports' project.id %}"{% if export_view != 'source' %} aria-current="page"{% endif %}>逐条结果与编码本</a><a href="?view=source"{% if export_view == 'source' %} aria-current="page"{% endif %}>原文选段结果</a></nav>
 {% if export_view == 'source' %}
 <section class="card"><h2>我的原文选段编码</h2>
@@ -14,7 +15,7 @@
       <p class="hint">明细保留片段、位置、代码、备注和保存时的编码本版本；Word 按代码汇总定义、来源数和引用数。</p>
       <div class="task-actions"><span class="hint">当前批次全部片段</span><button class="button" type="submit">下载导出文件</button></div>
     </form>
-  </div>{% empty %}<p class="muted">还没有原文选段编码记录。</p><a href="{% url 'units' project.id %}">查看项目材料 →</a>{% endfor %}
+  </div>{% empty %}<p class="muted">还没有原文选段编码记录。</p><div class="button-row">{% if role != 'viewer' %}<a class="button secondary" href="{% url 'source_start' project.id %}">开始原文选段编码 →</a>{% endif %}<a href="{% url 'units' project.id %}">查看项目材料 →</a></div>{% endfor %}
 </section>
 {% else %}
 <section class="card">
@@ -32,6 +33,7 @@
 {% if error %}<div {% if not export_form %}id="export-options"{% endif %} class="notice danger" role="alert">{{ error }}</div>{% endif %}
 {% if export_form %}
 <form method="post" action="#export-options" id="export-options" {% if row_form %}data-export-rows data-row-count="{{ row_count }}"{% endif %}>
+  <div class="notice amber" data-export-stale-hint hidden role="status" aria-live="polite">已更改上方导出对象或范围，请先点击“查看记录”刷新预览后再下载。</div>
   <div class="card export-sheet">
   {% csrf_token %}<input type="hidden" name="target" value="{{ target }}">
   {% if book %}<input type="hidden" name="book" value="{{ book.id }}">{% endif %}

@@ -66,7 +66,7 @@ def start_quick_coding(project, actor, book_id, token):
         from .source_coding import coding_documents, start_source_coding
         if not coding_documents(project).filter(units_confirmed=False).exists():
             raise ValueError('请先导入材料并确认编码单元。')
-        return start_source_coding(project, actor, book_id)
+        return start_source_coding(project, actor, book_id, collab_mode='independent')
     existing = Round.objects.filter(project=project, kind='quick', started_by=actor,
                                     book=book, state='active').exclude(pk__in=Round.objects.filter(
                                         sampling__source_coding=True)).order_by('-id').first()

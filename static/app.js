@@ -65,13 +65,15 @@ if (form) {
     const pendingSubmit = advancing || pending?.payload.action === 'submit';
     form.querySelectorAll('input:not([type=hidden]),textarea,select').forEach(el => el.disabled = stopped || pendingSubmit);
     form.querySelectorAll('button').forEach(el => el.disabled = stopped || pendingSubmit);
+    const splitPreview = form.dataset.mode === 'annotation' && form.dataset.splitPreview === 'true';
     const needsChoice = form.dataset.mode === 'annotation' && !hasJudgment();
     form.querySelectorAll('button[data-action]').forEach(el => el.disabled = stopped || inFlight || advancing || needsChoice
-      || el.dataset?.action === 'submit_next' && form.dataset.splitPreview === 'true');
+      || el.dataset?.action === 'submit_next' && splitPreview);
     const choiceHint = form.querySelector('[data-choice-required]');
     if (choiceHint) {
-      choiceHint.hidden = !needsChoice || stopped;
-      choiceHint.textContent = form.querySelector('[name=uncertain]').checked ? '请补充不确定的原因' : '先选择代码';
+      choiceHint.hidden = (!needsChoice && !splitPreview) || stopped;
+      choiceHint.textContent = splitPreview ? '正在拆分当前单元，请先确认拆分或取消'
+        : form.querySelector('[name=uncertain]').checked ? '请补充不确定的原因' : '先选择代码';
     }
     refreshReviewMarker();
     form.platformRefreshCodes?.();

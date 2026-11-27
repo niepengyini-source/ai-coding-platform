@@ -1,0 +1,61 @@
+<section class="card" id="historical-collaborators">
+  <div class="section-heading">
+    <div>
+      <h2>快速拉入历史合作成员</h2>
+      <p class="hint">无需生成和复制邀请码：可直接发出站内邀请（对方在“我的项目”点同意即进组），也可对熟识成员一键直接加入项目。</p>
+    </div>
+  </div>
+  <form action="{% url 'collaborator_action' project.id %}" method="post">
+    {% csrf_token %}
+    {% if is_team_setup %}<input type="hidden" name="team_setup" value="yes">{% endif %}
+    {% if historical_members %}
+    <div class="collaborator-grid">
+      {% for entry in historical_members %}
+      <label class="collaborator-chip">
+        <input type="checkbox" name="user_ids" value="{{ entry.user.id }}">
+        <span>
+          <strong>{{ entry.user.username }}</strong>
+          <small class="block muted">曾合作：{{ entry.projects|join:'、' }}</small>
+          {% if entry.pending_invite %}<small class="badge amber">已发邀请 · 待对方确认</small>{% endif %}
+        </span>
+      </label>
+      {% endfor %}
+    </div>
+    {% else %}
+    <p class="muted small">暂无其他项目的历史合作成员记录；你仍可在下方直接输入已注册同伴的用户名发出邀请。</p>
+    {% endif %}
+    <div class="collaborator-action-bar">
+      <div>
+        <label for="collab-username-{{ is_team_setup|yesno:'setup,members' }}">或输入已注册用户名（选填）</label>
+        <input id="collab-username-{{ is_team_setup|yesno:'setup,members' }}" name="username" maxlength="150" placeholder="例如：同伴注册的用户名">
+      </div>
+      <div>
+        <label for="collab-role-{{ is_team_setup|yesno:'setup,members' }}">分配权限</label>
+        <select id="collab-role-{{ is_team_setup|yesno:'setup,members' }}" name="role">
+          <option value="coder" selected>编码员（处理自己的任务）</option>
+          <option value="reviewer">复核者（管理规则与协商）</option>
+          <option value="viewer">只读成员（定稿后查看结果）</option>
+        </select>
+      </div>
+      <div class="button-row collaborator-buttons">
+        <button class="button" type="submit" name="mode" value="invite">发送邀请（等对方确认）</button>
+        <button class="button secondary" type="submit" name="mode" value="direct_add">直接加入项目</button>
+      </div>
+    </div>
+  </form>
+  {% if sent_direct_invites %}
+  <div class="sent-invites-list">
+    <p class="small muted"><strong>待对方确认的邀请（{{ sent_direct_invites|length }}）</strong></p>
+    {% for inv in sent_direct_invites %}
+    <div class="list-row">
+      <span><strong>{{ inv.invitee.username }}</strong> · {{ inv.get_role_display }} · <small class="muted">发送于 {{ inv.created_at|date:'m-d H:i' }}</small></span>
+      <form action="{% url 'direct_invite_cancel' project.id inv.id %}" method="post">
+        {% csrf_token %}
+        {% if is_team_setup %}<input type="hidden" name="team_setup" value="yes">{% endif %}
+        <button class="text-button" type="submit">撤回邀请</button>
+      </form>
+    </div>
+    {% endfor %}
+  </div>
+  {% endif %}
+</section>

@@ -20,7 +20,8 @@ from .exporting import ExportTable, export_response
 from .models import AuditEvent, Codebook, Membership, Round, SourceDocument
 from .source_models import SourceAnnotation, SourceCodingTask
 from .source_coding import (add_workspace_code, canonical_source, code_data, coding_documents, finish_source_coding,
-    progress_for, save_source_annotation, set_source_completed, source_annotation_data, start_source_coding, task_data)
+    progress_for, save_source_annotation, set_source_completed, source_annotation_data, start_source_coding,
+    task_data, visible_codes_for)
 from .views import access, api_error, body_json, round_access
 
 
@@ -62,8 +63,11 @@ def start(request, project_id):
         try:
             if not book:
                 raise ValueError('项目缺少初始编码本，请联系平台维护者恢复。')
+            collab_mode = request.POST.get('collab_mode')
+            if collab_mode not in ('independent', 'sync'):
+                collab_mode = None
             round_obj, created = start_source_coding(project, request.user, book.pk,
-                [selected.pk] if selected else None)
+                [selected.pk] if selected else None, collab_mode=collab_mode)
             task = round_obj.source_tasks.filter(coder=request.user, document=selected).first() if selected else None
             destination = reverse('workbench', args=[round_obj.pk])
             return redirect(destination + (f'?task={task.pk}' if task else ''))
@@ -104,24 +108,57 @@ def workbench(request, round_id):
     visible = list(page.object_list)
     def page_url(number):
         return reverse('workbench', args=[round_obj.pk]) + '?' + urlencode({'task': task.pk, 'reader_page': number})
+    def _peer_overview(round_obj, document, actor, blocks):
+        if not (round_obj.sampling.get('collab_mode') == 'sync' and round_obj.sampling.get('share_annotations')):
+            return []
+        starts = [b['start'] for b in blocks]
+        peers = (SourceAnnotation.objects.filter(task__round=round_obj, task__document=document)
+                 .exclude(task__coder=actor).select_related('task__coder').order_by('start', 'end', 'id'))
+        rows = []
+        for ann in peers:
+            pnum = max(0, bisect_right(starts, ann.start) - 1) // 30 + 1 if starts else 1
+            item = source_annotation_data(ann, overview=False)
+            item['coder'] = ann.task.coder.username
+            item['peer'] = True
+            item['url'] = reverse('workbench', args=[round_obj.pk]) + '?' + urlencode({'task': task.pk, 'reader_page': pnum})
+            rows.append(item)
+        return rows
+
+    allow_coder = bool(round_obj.sampling.get('allow_coder_codes'))
+    is_private = round_obj.sampling.get('collab_mode') == 'independent'
+    can_add_codes = (
+        (role in ('owner', 'reviewer') or (allow_coder and role == 'coder'))
+        and round_obj.state == 'active'
+        and (not round_obj.book.frozen or is_private)
+    )
     urls = {'annotations': reverse('source_annotations', args=[task.pk]),
         'complete': reverse('source_complete', args=[task.pk]),
-        'finish': reverse('source_finish', args=[round_obj.pk]),
+        'finish': reverse('source_finish', args=[round_obj.pk]) if round_obj.kind == 'quick' else '',
         'export': reverse('source_export', args=[round_obj.pk]) + '?format=xlsx',
         'history': reverse('source_history', args=[1]).replace('1/history/', '')}
-    source_data = {'task': task_data(task), 'round': {'id': round_obj.pk, 'state': round_obj.state, 'revision': round_obj.revision},
+    source_data = {'task': task_data(task),
+        'round': {'id': round_obj.pk, 'state': round_obj.state, 'revision': round_obj.revision,
+                  'kind': round_obj.kind, 'collab_mode': round_obj.sampling.get('collab_mode', 'independent'),
+                  'share_annotations': bool(round_obj.sampling.get('share_annotations'))},
         'book': {'id': round_obj.book_id, 'version': round_obj.book.version, 'policy': round_obj.book.policy,
                  'revision': round_obj.book.revision},
         'text': text[visible[0]['start']:visible[-1]['end']] if visible else '',
         'start': visible[0]['start'] if visible else 0, 'blocks': visible,
-        'annotations': _overview(task, blocks), 'codes': [code_data(code) for code in round_obj.book.codes.all()],
+        'annotations': _overview(task, blocks),
+        'peer_annotations': _peer_overview(round_obj, task.document, request.user, blocks),
+        'codes': [code_data(code) for code in visible_codes_for(round_obj, request.user, role)],
         'progress': progress_for(round_obj, request.user),
         'selected_annotation_id': selected.pk if selected else None,
-        'can_add_codes': role in ('owner', 'reviewer') and round_obj.state == 'active' and not round_obj.book.frozen,
+        'can_add_codes': can_add_codes,
         'urls': urls}
+    can_review_round = (round_obj.kind != 'quick' and (
+        round_obj.state != 'active' or round_obj.kind == 'training'
+        or (round_obj.sampling.get('collab_mode') == 'sync' and round_obj.sampling.get('share_annotations'))
+    ))
     return render(request, 'coding/source_workbench.html', {'project': round_obj.project, 'role': role,
         'round': round_obj, 'book': round_obj.book, 'source_task': task, 'source_tasks': tasks,
         'blocks': visible, 'reader_page': page, 'reading_document': task.document, 'source_data': source_data,
+        'can_review_round': can_review_round,
         'previous_reader_url': page_url(page.previous_page_number()) if page.has_previous() else '',
         'next_reader_url': page_url(page.next_page_number()) if page.has_next() else ''})
 
@@ -130,13 +167,26 @@ def workbench(request, round_id):
 @require_http_methods(['GET', 'POST'])
 def annotations(request, task_id):
     task = _task(request, task_id)
+    _, role = access(request, task.round.project_id)
     if request.method == 'GET':
         if request.GET.get('id'):
             annotation = get_object_or_404(task.annotations, pk=request.GET['id'])
             return JsonResponse({'annotation': source_annotation_data(annotation), 'task': task_data(task)})
         _, blocks = canonical_source(task.document)
-        return JsonResponse({'annotations': _overview(task, reading_blocks(blocks)), 'task': task_data(task),
-                             'progress': progress_for(task.round, request.user)})
+        rblocks = reading_blocks(blocks)
+        payload = {'annotations': _overview(task, rblocks), 'task': task_data(task),
+                   'progress': progress_for(task.round, request.user)}
+        if task.round.sampling.get('collab_mode') == 'sync':
+            payload['codes'] = [code_data(c) for c in visible_codes_for(task.round, request.user, role)]
+            payload['book_revision'] = task.round.book.revision
+            if task.round.sampling.get('share_annotations'):
+                peers = (SourceAnnotation.objects.filter(task__round=task.round, task__document=task.document)
+                         .exclude(task__coder=request.user).select_related('task__coder').order_by('start', 'end', 'id'))
+                payload['peer_annotations'] = [
+                    {**source_annotation_data(ann, overview=False), 'coder': ann.task.coder.username, 'peer': True}
+                    for ann in peers
+                ]
+        return JsonResponse(payload)
     try:
         data = body_json(request)
         annotation = save_source_annotation(task.pk, request.user, data)
@@ -145,7 +195,9 @@ def annotations(request, task_id):
                   'progress': progress_for(task.round, request.user)}
         if data.get('new_code') is not None:
             book = Codebook.objects.get(pk=annotation.book_snapshot['id'])
-            result.update(codes=[code_data(code) for code in book.codes.all()], book_revision=book.revision)
+            task.round.book = book
+            result.update(codes=[code_data(code) for code in visible_codes_for(task.round, request.user, role)],
+                          book_revision=book.revision)
         return JsonResponse(result)
     except (ValueError, OperationalError) as error:
         return api_error(error)
@@ -199,13 +251,21 @@ def history(request, annotation_id):
 @login_required
 @require_GET
 def export(request, round_id):
-    round_obj, _ = round_access(request, round_id)
+    round_obj, role = round_access(request, round_id)
     if not round_obj.sampling.get('source_coding'):
         raise Http404
     file_format = request.GET.get('format', 'xlsx')
     if file_format not in ('xlsx', 'csv', 'json', 'tsv', 'docx'):
         return JsonResponse({'error': '请选择Excel、CSV、TSV、JSON或Word格式。'}, status=400)
-    entries = SourceAnnotation.objects.filter(task__round=round_obj, task__coder=request.user)
+    export_all = request.GET.get('scope') == 'all' and round_obj.kind != 'quick'
+    if export_all:
+        can_see_all = (round_obj.state != 'active' or round_obj.kind == 'training'
+                       or (round_obj.sampling.get('collab_mode') == 'sync' and round_obj.sampling.get('share_annotations')))
+        if not can_see_all or (role == 'viewer' and round_obj.state != 'closed'):
+            raise PermissionDenied('独立编码尚未进入协商，不能导出其他成员的记录。')
+        entries = SourceAnnotation.objects.filter(task__round=round_obj)
+    else:
+        entries = SourceAnnotation.objects.filter(task__round=round_obj, task__coder=request.user)
     if file_format == 'docx':
         summaries = {}
         snapshots = entries.order_by('-updated_at', '-pk').values_list('task__document_id', 'book_snapshot')

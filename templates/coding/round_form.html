@@ -1,8 +1,85 @@
 {% extends 'base.html' %}{% load static %}
+{% block title %}安排编码任务 · {{ project.name }} · AI辅助编码平台{% endblock %}
 {% block content %}
 <link rel="stylesheet" href="{% static 'round_selection.css' %}">
-<div class="page-heading"><h1>安排编码任务</h1><p>先选成员和材料，预览确认后再分配。</p></div>
+<div class="page-heading heading-row">
+  <h1>安排编码任务</h1>
+  <nav class="page-switch is-sliding" data-sliding-switch data-active="{% if task_type == 'document' %}document{% else %}unit{% endif %}" aria-label="任务分配类型">
+    <span class="page-switch-thumb" aria-hidden="true"></span>
+    <a href="?type=document" data-switch-key="document"{% if task_type == 'document' %} aria-current="page"{% endif %}>整篇材料<small>直接阅读划选，无需切句</small></a>
+    <a href="?type=unit" data-switch-key="unit"{% if task_type != 'document' %} aria-current="page"{% endif %}>编码单元<small>{% if unit_index %}{{ unit_index|length }} 条可抽样分配{% else %}需先切分句子{% endif %}</small></a>
+  </nav>
+</div>
 {% if error %}<div class="notice danger" role="alert">{{ error }}</div>{% endif %}
+
+{% if task_type == 'document' %}
+<form id="document-round-arrangement" class="round-arrangement" method="post">
+  {% csrf_token %}
+  <input type="hidden" name="arrangement_mode" value="source_document">
+  {% if doc_form.errors %}
+  <div class="notice danger" role="alert">
+    <strong>请检查以下内容</strong>
+    {{ doc_form.non_field_errors }}
+    {% for field in doc_form %}{% for err in field.errors %}<p>{{ field.label }}：{{ err }}</p>{% endfor %}{% endfor %}
+  </div>
+  {% endif %}
+  <section class="card">
+    <h2>安排什么工作</h2>
+    <div class="round-field-grid">
+      <div><label for="{{ doc_form.name.id_for_label }}">任务名称</label>{{ doc_form.name }}<p class="hint">例如“政策文件第一轮独立编码”或“团队协同开放编码”。</p></div>
+      <div><label for="{{ doc_form.kind.id_for_label }}">工作阶段</label>{{ doc_form.kind }}<p class="hint">试编码与正式编码默认隔离各成员记录；进入协商后再汇总对比。</p></div>
+    </div>
+    <p class="round-book-summary">初始编码本：<strong>{{ current_book.title|default:'尚未准备编码本' }}</strong>{% if current_book %} · v{{ current_book.version }}<span>没有预设代码也可直接开始，成员可在阅读中随时新建代码。</span>{% endif %}</p>
+  </section>
+
+  <section class="card">
+    <h2>协作与同步方式（核心设置）</h2>
+    <fieldset class="round-selection-modes">
+      <legend>选择成员之间是否实时同步</legend>
+      <label>
+        <input type="radio" name="collab_mode" value="independent"{% if doc_form.collab_mode.value|default:'independent' == 'independent' %} checked{% endif %}>
+        <span><strong>各自独立编码（推荐默认）</strong><small>严格盲编隔离：成员看不到他人划选的片段，各自新建的代码也仅本人可见，互不干扰；完成后再进入协商页并排对比并择优采纳代码。</small></span>
+      </label>
+      <label>
+        <input type="radio" name="collab_mode" value="sync"{% if doc_form.collab_mode.value == 'sync' %} checked{% endif %}>
+        <span><strong>同步协作编码</strong><small>团队共享同一套代码列表（任一成员新增代码后全组实时可用），适合开放探索或共同梳理框架。</small></span>
+      </label>
+    </fieldset>
+    <div class="doc-round-options">
+      <label class="check-line">{{ doc_form.allow_coder_codes }}<span>{{ doc_form.allow_coder_codes.label }}</span></label>
+      <label class="check-line" data-sync-only-option>{{ doc_form.share_annotations }}<span>{{ doc_form.share_annotations.label }}</span></label>
+    </div>
+  </section>
+
+  <section class="card">
+    <h2>谁来编码与如何分工</h2>
+    <fieldset class="round-members"><legend>参与成员</legend>{{ doc_form.coder_ids }}<p class="hint">勾选本轮参与阅读与划选的成员，尚不在项目中的伙伴可先去<a href="{% url 'members' project.id %}">成员管理</a>一键邀请或加入。</p></fieldset>
+    <div class="round-field-grid">
+      <div><label for="{{ doc_form.distribution.id_for_label }}">材料分配方式</label>{{ doc_form.distribution }}<p class="hint">政策文件、访谈稿若需多人背靠背对比，选“共同编码所选材料”；若材料多需拆分任务量，选“按篇分工”。</p></div>
+    </div>
+  </section>
+
+  <section class="card">
+    <h2>选择整篇材料（无需预先切分句子）</h2>
+    {% if has_coding_documents %}
+    <fieldset class="round-members"><legend>勾选要分配的原文档</legend>{{ doc_form.document_ids }}<p class="hint">成员将在工作台中阅读整篇文档并自由划选任意词句、段落或跨页片段进行编码。</p></fieldset>
+    {% else %}
+    <p class="hint">当前项目还没有导入可阅读的编码材料。请先前往 <a href="{% url 'materials' project.id %}">导入与管理材料</a> 上传 PDF、Word、TXT 或表格文件。</p>
+    {% endif %}
+  </section>
+
+  <div class="round-submit">
+    <p class="hint">确认后立即为所选成员生成整篇阅读编码任务。</p>
+    <button class="button" type="submit" {% if not has_coding_documents %}disabled{% endif %}>立即分配整篇材料任务</button>
+  </div>
+</form>
+<script src="{% static 'round_selection.js' %}" defer></script>
+{% else %}
+{% if not has_confirmed_units and has_coding_documents %}
+<div class="notice" role="status">
+  当前材料尚未切分为固定句子单元。如果你想把整篇文档直接分配给组员自由划选，请切换到上方 <strong><a href="?type=document">整篇材料划选任务（无需切句）</a></strong>。
+</div>
+{% endif %}
 <form id="round-arrangement" class="round-arrangement" method="post" data-unit-choices-url="{{ unit_choices_url }}">
   {% csrf_token %}{{ form.book_id.as_hidden }}{{ form.unit_ids.as_hidden }}
   <input type="hidden" name="pool_hash" value="{{ pool_hash }}">
@@ -40,4 +117,5 @@
 </form>
 {{ unit_index|json_script:'round-unit-index' }}
 <script src="{% static 'round_selection.js' %}" defer></script>
+{% endif %}
 {% endblock %}

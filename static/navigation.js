@@ -5,13 +5,14 @@
   const identity = document.body.dataset.navigationUser || 'anonymous';
   const storageKey = 'ai-coding-platform:navigation:v1:' + identity;
   const current = location.pathname + location.search;
-  const allowedPage = /^\/(?:$|login\/$|guide\/$|accounts\/(?:register|password(?:\/done)?)\/$|groups\/join\/$|projects\/(?:new\/)?$|p\/\d+\/(?:$|members\/$|materials\/$|units\/$|exports\/$|archive\/$|quick-start\/$|progress\/$|history\/(?:\d+\/)?$|books\/(?:new|\d+(?:\/import)?)\/$|rounds\/new\/$)|r\/\d+\/(?:$|review\/$|disagreements\/$|report\/$))/;
+  const allowedPage = /^\/(?:$|login\/$|guide\/$|accounts\/(?:register|password(?:\/done)?)\/$|groups\/join\/$|projects\/(?:new\/|trash\/)?$|p\/\d+\/(?:$|members\/$|team-setup\/$|materials\/(?:\d+\/prepare\/)?$|units\/$|exports\/$|archive\/$|quick-start\/$|source-coding\/$|progress\/$|history\/(?:\d+\/)?$|books\/(?:new|\d+(?:\/import(?:\/source\/\d+)?|\/codes\/\d+\/references)?)\/$|rounds\/new\/$)|r\/\d+\/(?:$|review\/$|disagreements\/$|report\/$))/;
+  const allowedHash = /^$|^#(?:code-\d+|project-rounds|round-actions|correct-record|workflow|shortcuts|source-coding-help)$/;
   const authPage = path => /^\/(?:login|accounts\/register)\/(?:\?|$)/.test(path);
   const safePath = value => {
     if (typeof value !== 'string' || !value.startsWith('/') || value.startsWith('//') || value.length > 4000) return null;
     try {
       const url = new URL(value, location.origin);
-      return url.origin === location.origin && !url.hash && allowedPage.test(url.pathname) ? url.pathname + url.search : null;
+      return url.origin === location.origin && allowedHash.test(url.hash) && allowedPage.test(url.pathname) ? url.pathname + url.search + url.hash : null;
     } catch (_) { return null; }
   };
   const fallback = safePath(button?.getAttribute('href')) || (identity === 'anonymous' ? '/login/' : '/');
@@ -47,6 +48,7 @@
     const previous = stack[stack.length - 1] === current ? stack.slice(0, -1) : stack;
     target = [...previous].reverse().find(path => path !== current &&
       !(current === '/accounts/password/done/' && path === '/accounts/password/')) || fallback;
+    if (fallback.includes('#') && fallback.split('#')[0] === target) target = fallback;
     if (!button) return;
     const disabled = target === current;
     button.setAttribute('href', target);
@@ -69,8 +71,9 @@
     }
     hint.textContent = '';
     // Explicit GET navigation avoids reposting earlier forms or opening an external site.
-    const previousIndex = stack.lastIndexOf(target);
-    store(previousIndex >= 0 ? stack.slice(0, previousIndex + 1) : [target]);
+    const targetBase = target.split('#')[0];
+    const previousIndex = stack.lastIndexOf(targetBase);
+    store(previousIndex >= 0 ? stack.slice(0, previousIndex + 1) : [targetBase]);
     location.assign(target);
   });
 })();

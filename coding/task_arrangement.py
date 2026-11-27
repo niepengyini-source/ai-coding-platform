@@ -3,6 +3,7 @@ import hashlib
 import json
 import uuid
 
+from django.contrib import messages
 from django.contrib.auth.decorators import login_required
 from django.core import signing
 from django.core.exceptions import PermissionDenied
@@ -18,6 +19,8 @@ from .models import Membership, Project, Round, Unit
 from .round_forms import RoundForm
 from .selection import select_round_units
 from .services import create_round
+from .source_coding import coding_documents
+from .source_rounds import DocumentRoundForm, create_document_round
 from .views import access
 
 
@@ -45,10 +48,29 @@ def form_data(arguments):
     return values
 
 
-def form_page(request, project, role, form, error=''):
+def form_page(request, project, role, form, error='', *, doc_form=None, task_type=None):
     ids, digest = pool_snapshot(project)
+    coding_docs = list(coding_documents(project))
+    requested_type = request.GET.get('type')
+    if task_type not in ('document', 'unit'):
+        if requested_type in ('document', 'unit'):
+            task_type = requested_type
+        elif not ids and coding_docs:
+            task_type = 'document'
+        else:
+            task_type = 'unit'
+    if doc_form is None:
+        default_coders = [
+            m.user_id for m in project.memberships.exclude(role='viewer').filter(user__is_active=True)
+        ]
+        doc_form = DocumentRoundForm(project=project, initial={
+            'coder_ids': default_coders or [request.user.pk],
+            'document_ids': [d.pk for d in coding_docs],
+        })
     return render(request, 'coding/round_form.html', {
         'project': project, 'role': role, 'form': form, 'error': error,
+        'doc_form': doc_form, 'task_type': task_type,
+        'has_coding_documents': bool(coding_docs), 'has_confirmed_units': bool(ids),
         'current_book': project.codebooks.first(), 'unit_index': ids, 'pool_hash': digest,
         'documents': project.documents.all(), 'metadata_fields': metadata_fields(project),
         'unit_choices_url': reverse('round_unit_choices', args=[project.pk]),
@@ -93,6 +115,19 @@ def arrange_round(request, project_id):
     project, role = access(request, project_id, ['owner', 'reviewer'])
     current = project.codebooks.first()
     initial = {'book_id': current.pk if current else None, 'coder_ids': [request.user.pk]}
+    if request.method == 'POST' and request.POST.get('arrangement_mode') == 'source_document':
+        doc_form = DocumentRoundForm(request.POST, project=project)
+        if doc_form.is_valid():
+            try:
+                r = create_document_round(project, request.user, doc_form.cleaned_data)
+                messages.success(request, f'已分配整篇材料任务「{r.name}」。')
+                if r.source_tasks.filter(coder=request.user).exists():
+                    return redirect('workbench', r.pk)
+                return redirect('progress', project.pk)
+            except (ValueError, OperationalError) as error:
+                doc_form.add_error(None, '数据库忙，请稍后重试。' if isinstance(error, OperationalError) else str(error))
+        return form_page(request, project, role, RoundForm(project=project, initial=initial),
+                         doc_form=doc_form, task_type='document')
     action = request.POST.get('action', '')
     if request.method == 'POST' and action in ('confirm', 'edit', 'page'):
         try:

@@ -149,7 +149,7 @@ def clone_book(project, actor, source, title, policy, change_note):
     book = Codebook.objects.create(project=project, version=version, title=title, policy=policy, change_note=change_note)
     if source:
         mapping = {}
-        old_codes = list(source.codes.all())
+        old_codes = list(source.codes.filter(private_coder__isnull=True))
         for old in old_codes:
             values = {f.name: getattr(old, f.name) for f in Code._meta.fields if f.name not in ('id', 'book', 'parent')}
             mapping[old.id] = Code.objects.create(book=book, **values)

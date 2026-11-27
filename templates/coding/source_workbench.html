@@ -1,13 +1,15 @@
 {% extends 'base.html' %}{% load static %}
-{% block title %}编码工作台 · {{ project.name }}{% endblock %}
+{% block title %}原文选段工作台 · {{ round.name }} · {{ project.name }}{% endblock %}
 {% block page_assets %}<link rel="stylesheet" href="{% static 'workbench.css' %}"><link rel="stylesheet" href="{% static 'source_coding.css' %}"><script src="{% static 'workbench/task-queue.js' %}" defer></script><script src="{% static 'source_coding.js' %}" defer></script>{% endblock %}
 {% block workbench_header %}
 <div class="workbench-toolbar">
   <a id="page-back" class="icon-button workbench-back" data-icon-return="true" href="{% url 'project' project.id %}" aria-label="返回上一页" title="返回上一页">{% include 'coding/workbench_icon.html' with name='back' %}</a>
   <div class="workbench-context"><h1>编码工作台</h1><p title="{{ project.name }} · {{ round.name }}">{{ project.name }} <span>／ {{ round.name }}</span></p></div>
   <span class="workbench-progress"><span>材料进度</span><strong data-source-progress>{{ source_data.progress.done }} / {{ source_data.progress.total }}</strong></span>
-  <span class="badge workbench-state {% if round.state == 'closed' %}green{% endif %}" data-source-round-state>{% if round.state == 'closed' %}已结束{% else %}编码中{% endif %}</span>
+  <span class="badge {% if source_data.round.collab_mode == 'sync' %}indigo{% endif %}">{% if source_data.round.collab_mode == 'sync' %}{% if source_data.round.share_annotations %}同步协作·共享片段{% else %}同步代码{% endif %}{% else %}独立编码{% endif %}</span>
+  <span class="badge workbench-state {% if round.state == 'closed' %}green{% elif round.state == 'review' %}indigo{% endif %}" data-source-round-state>{% if round.state == 'closed' %}已结束{% elif round.state == 'review' %}协商汇总{% else %}编码中{% endif %}</span>
   <details class="workbench-menu" data-workbench-menu><summary class="icon-button" aria-label="工作台工具" title="工作台工具">{% include 'coding/workbench_icon.html' with name='more' %}</summary><div class="workbench-menu-panel">
+    {% if can_review_round %}<a href="{% url 'disagreements' round.id %}">{% include 'coding/workbench_icon.html' with name='rules' %}查看全组汇总对比</a>{% endif %}
     {% url 'source_export' round.id as source_export_url %}
     <a href="{{ source_export_url }}?format=docx">{% include 'coding/workbench_icon.html' with name='export' %}编码汇总（Word）</a>
     <a href="{{ source_data.urls.export }}">编码明细（Excel）</a>
@@ -17,6 +19,9 @@
     <a href="{% url 'history' project.id %}">{% include 'coding/workbench_icon.html' with name='history' %}我的编码历史</a>
     <a href="{% url 'codebook' project.id book.id %}">{% include 'coding/workbench_icon.html' with name='rules' %}管理编码本</a>
     <button type="button" data-source-history-open>{% include 'coding/workbench_icon.html' with name='history' %}当前片段修改历史</button>
+    {% if role == 'owner' or role == 'reviewer' %}{% if round.kind != 'quick' and round.state == 'active' %}
+    <form method="post" action="{% url 'round_manage' round.id %}">{% csrf_token %}<input type="hidden" name="action" value="lock"><input type="hidden" name="revision" value="{{ round.revision }}"><button type="submit">{% include 'coding/workbench_icon.html' with name='archive' %}进入协商汇总对比</button></form>
+    {% endif %}{% endif %}
     {% if source_data.urls.finish %}<button type="button" data-source-finish {% if round.state == 'closed' %}disabled{% endif %}>{% include 'coding/workbench_icon.html' with name='archive' %}结束本批编码</button>{% endif %}
   </div></details><span id="page-back-hint" class="back-hint" role="status" aria-live="polite"></span>
 </div>
@@ -24,15 +29,19 @@
 {% block content %}
 <div class="source-coding" data-source-coding>
   <aside class="source-task-panel" aria-label="材料与我的片段">
-    <div class="source-panel-heading"><h2>我的材料 <span>{{ source_data.progress.total }}</span></h2><button class="icon-button" type="button" data-source-collapse aria-controls="source-task-content" aria-expanded="true" aria-label="收起材料与片段" title="收起材料与片段">{% include 'coding/workbench_icon.html' with name='sidebar' %}</button></div>
+    <div class="source-panel-heading"><h2>我的材料 <span>{{ source_data.progress.total }}</span></h2><button class="icon-button" type="button" data-source-collapse aria-controls="source-task-content" aria-expanded="true" aria-label="收起材料与片段" title="收起材料与片段">{% include 'coding/workbench_icon.html' with name='panel-list' %}</button></div>
     <div class="source-task-content" id="source-task-content">
       <nav class="source-material-list" aria-label="我的材料">{% for task in source_tasks %}<a class="source-material {% if task.id == source_task.id %}selected{% endif %}" href="{% url 'workbench' round.id %}?task={{ task.id }}"{% if task.id == source_task.id %} aria-current="page"{% endif %}><span>{{ task.document.name }}</span><small>{% if task.completed %}已完成{% else %}编码中{% endif %}</small></a>{% endfor %}</nav>
       <div class="source-fragments-heading"><h2>已保存片段 <span data-source-count>0</span></h2><span class="hint">仅显示我的记录</span></div>
       <ol class="source-annotation-list" data-source-annotation-list aria-label="我的已保存片段"><li class="hint">尚未保存片段。请在正文中划选需要编码的文字。</li></ol>
+      <div class="source-peer-section" data-source-peer-section hidden>
+        <div class="source-fragments-heading"><h2>同伴已标片段 <span data-source-peer-count>0</span></h2><span class="hint">同步共享 · 只读参考</span></div>
+        <ol class="source-annotation-list source-peer-list" data-source-peer-list aria-label="同伴已标片段"></ol>
+      </div>
     </div>
   </aside>
   <section class="source-reader" aria-label="原文阅读与划选">
-    <div class="source-reading-heading"><div><h2>{{ reading_document.name }}</h2><span class="hint">{% if reading_document.normalized.type == 'image' %}原图只读 · 框选后在右侧编码{% else %}原文只读 · 划选后在右侧编码{% endif %}</span></div><div class="button-row"><a class="button secondary" href="{% url 'project' project.id %}#project-rounds">全部编码任务</a>{% if reading_document.normalized.source.format == 'pdf' %}<a class="button secondary" href="{% url 'source_preview' project.id reading_document.id %}#page={{ blocks.0.page|default:1 }}" target="_blank" rel="noopener">查看原版 PDF</a>{% endif %}<a class="button secondary" href="{% url 'source_original' project.id reading_document.id %}" target="_blank" rel="noopener">下载原件</a></div></div>
+    <div class="source-reading-heading"><div><h2>{{ reading_document.name }}</h2><span class="hint">{% if reading_document.normalized.type == 'image' %}原图只读 · 框选后在右侧编码{% else %}原文只读 · 划选后在右侧编码{% endif %}</span></div><div class="button-row">{% if can_review_round %}<a class="button secondary" href="{% url 'disagreements' round.id %}">汇总对比</a>{% endif %}<a class="button secondary" href="{% url 'project' project.id %}#project-rounds">全部编码任务</a>{% if reading_document.normalized.source.format == 'pdf' %}<a class="button secondary" href="{% url 'source_preview' project.id reading_document.id %}#page={{ blocks.0.page|default:1 }}" target="_blank" rel="noopener">查看原版 PDF</a>{% endif %}<a class="button secondary" href="{% url 'source_original' project.id reading_document.id %}" target="_blank" rel="noopener">下载原件</a></div></div>
     {% if reading_document.normalized.pages_to_review %}<details class="source-pdf-review">
       <summary>{{ reading_document.normalized.pages_to_review|length }} 页的文字提取结果需核对</summary>
       <p class="hint">原版保留所有页面。请检查这些页是否含有待编码正文，必要时先做 OCR 并校对。</p>

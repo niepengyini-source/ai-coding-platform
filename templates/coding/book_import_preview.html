@@ -1,4 +1,5 @@
 {% extends 'base.html' %}
+{% block title %}核对编码本 · {{ project.name }} · AI辅助编码平台{% endblock %}
 {% block content %}
 <div class="task-page import-page">
 <div class="page-heading"><h1>核对编码本</h1><p>{{ draft.filename }} · 待导入 {% if preview.unchanged %}0{% else %}{{ preview.codes|length }}{% endif %} 条，跳过 {{ preview.import_stats.duplicate_count|default:0 }} 条完全重复规则。</p></div>

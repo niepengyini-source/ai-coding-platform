@@ -207,3 +207,25 @@ test('cancelled import to the same book never reopens the old import wizard',()=
   setup('/p/2/books/4/import/?draft=demo&stage=preview','/p/2/',{store});
   const ui=setup('/p/2/books/4/','/p/2/',{store});ui.click();assert.equal(ui.moves[0],'/p/2/');
 });
+
+test('team setup, source coding, document prepare and code references keep safe return targets',()=>{
+  const direct=setup('/p/2/books/4/codes/9/references/','/p/2/books/4/#code-9');
+  direct.click();
+  assert.deepEqual(direct.moves,['/p/2/books/4/#code-9']);
+  const store=new Map();
+  setup('/p/2/','/projects/',{store});
+  setup('/p/2/books/4/','/p/2/',{store});
+  const visitedRef=setup('/p/2/books/4/codes/9/references/','/p/2/books/4/#code-9',{store});
+  assert.equal(visitedRef.attributes.href,'/p/2/books/4/#code-9');
+  visitedRef.click();
+  assert.deepEqual(visitedRef.moves,['/p/2/books/4/#code-9']);
+  const backToBook=setup('/p/2/books/4/','/p/2/',{store});
+  backToBook.click();
+  assert.deepEqual(backToBook.moves,['/p/2/']);
+  const store2=new Map();
+  setup('/p/2/team-setup/','/p/2/',{store:store2});
+  setup('/p/2/materials/5/prepare/','/p/2/materials/',{store:store2});
+  const ui=setup('/p/2/source-coding/?document=5','/p/2/materials/',{store:store2});
+  ui.click();
+  assert.equal(ui.moves[0],'/p/2/materials/5/prepare/');
+});

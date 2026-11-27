@@ -1,4 +1,5 @@
 {% extends 'base.html' %}
+{% block title %}开始编码 · {{ project.name }} · AI辅助编码平台{% endblock %}
 {% block content %}
 <div class="page-heading"><h1>开始编码</h1></div>
 {% if workflow.preparation %}{% include 'coding/workflow_hint.html' %}{% endif %}

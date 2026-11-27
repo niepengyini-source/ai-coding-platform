@@ -1,4 +1,5 @@
 {% extends 'base.html' %}
+{% block title %}分歧与疑点清单 · {{ round.name }} · {{ project.name }}{% endblock %}
 {% block content %}
 <div class="page-heading heading-row">
   <div><h1>分歧与疑点清单</h1><p>{{ round.name }} · 系统只比较标签和标记，不代替你解释分歧原因。</p></div>
@@ -12,7 +13,7 @@
     <a class="button {% if mode != 'attention' %}secondary{% endif %}" href="?filter=attention">分歧或疑点 {{ counts.attention }}</a>
     <a class="button {% if mode != 'undecided' %}secondary{% endif %}" href="?filter=undecided">尚未定稿 {{ counts.undecided }}</a>
     <a class="button {% if mode != 'all' %}secondary{% endif %}" href="?filter=all">全部单元 {{ counts.all }}</a>
-    <a class="button secondary" href="{% url 'export_round' round.id 'disagreements' %}">导出分歧CSV</a>
+    <a class="button secondary queue-export" href="{% url 'export_round' round.id 'disagreements' %}">导出分歧CSV</a>
   </div>
   <p class="hint">“主次代码互换”即使标签集合相同也会列出。“单人编码”没有可比较对象，不代表已达成一致。每个单元仍需单独保存最终结论。</p>
   <div class="table-wrap"><table>

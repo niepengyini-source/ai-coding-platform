@@ -10,15 +10,24 @@ def project_rows(project, user, role):
         tasks = tasks.filter(coder=user)
     # Personal source rounds are always counted for their own coder only.
     tasks = tasks.filter(~Q(round__kind='quick') | Q(coder=user))
-    return list(tasks.values('round_id', 'round__name', 'round__state').annotate(
+    rows = list(tasks.values('round_id', 'round__name', 'round__state', 'round__kind', 'round__sampling').annotate(
         total=Count('id', distinct=True), done=Count('id', filter=Q(completed=True), distinct=True),
+        coders=Count('coder_id', distinct=True),
         annotations=Count('annotations', distinct=True)).order_by('-round_id'))
+    for row in rows:
+        sampling = row.pop('round__sampling') or {}
+        row['collab_mode'] = sampling.get('collab_mode', 'independent')
+        row['can_review'] = row['round__kind'] != 'quick' and (
+            row['round__state'] != 'active' or row['round__kind'] == 'training'
+            or (sampling.get('collab_mode') == 'sync' and sampling.get('share_annotations'))
+        )
+    return rows
 
 
 def attach_project_cards(memberships, user):
     ids = [m.project_id for m in memberships]
     rows = (SourceCodingTask.objects.filter(round__project_id__in=ids, coder=user)
-        .values('round_id', 'round__project_id', 'round__name', 'round__state')
+        .values('round_id', 'round__project_id', 'round__name', 'round__state', 'round__kind')
         .annotate(total=Count('id', distinct=True), done=Count('id', filter=Q(completed=True), distinct=True), latest=Max('updated_at'),
                   last_coded=Max('annotations__updated_at')).order_by('-round_id'))
     latest = {}
@@ -41,7 +50,7 @@ def attach_project_cards(memberships, user):
             member.personal_task_label = '继续原文编码' if row['round__state'] == 'active' else '查看原文编码'
             member.waiting_for_assignment = False
             if not member.collaboration_label:
-                member.collaboration_label = '单人编码'
+                member.collaboration_label = '团队整篇编码' if row['round__kind'] != 'quick' else '单人编码'
             if not member.assignment_coder_count:
                 member.assignment_coder_count = 1
         if row and row['last_coded'] and (not member.last_coded_at or row['last_coded'] > member.last_coded_at):

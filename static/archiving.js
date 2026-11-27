@@ -30,6 +30,12 @@
       selection.value = 'selected';
       update();
     }));
+    form.querySelectorAll?.('[data-archive-page-select]').forEach(btn => btn.addEventListener('click', () => {
+      const check = btn.dataset.archivePageSelect === 'all';
+      checkboxes.forEach(input => { input.checked = check; });
+      selection.value = 'selected';
+      update();
+    }));
     const searchFields = ['scope', 'mode', 'q', 'document', 'round_id', 'code', 'status',
       'metadata_field', 'metadata_value', 'start', 'end', 'include_superseded'];
     searchFields.forEach(name => {

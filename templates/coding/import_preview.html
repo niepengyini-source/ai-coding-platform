@@ -1,4 +1,4 @@
-{% extends 'base.html' %}{% block content %}
+{% extends 'base.html' %}{% block title %}核对材料 · {{ project.name }} · AI辅助编码平台{% endblock %}{% block content %}
 <div class="task-page import-page">
 <div class="page-heading heading-row"><div><h1>核对材料</h1><p>{{ draft.filename }}{% if document_preview %} · 原文预览{% else %} · {{ row_count }} 行 · 前5行预览{% endif %}</p></div><a href="{{ request.path }}">更换文件</a></div>
 {% if workflow.preparation %}{% include 'coding/workflow_hint.html' with compact=True %}{% endif %}

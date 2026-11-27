@@ -13,6 +13,9 @@ from coding import ai_views
 from coding import document_views as documents
 from coding import document_files
 from coding import source_views as source
+from coding import source_rounds
+from coding import project_lifecycle as lifecycle
+from coding import collaborator_invites as collabs
 from coding import workbench_tools
 from coding.account_forms import PlatformLoginForm
 
@@ -21,14 +24,22 @@ urlpatterns = [
     path('accounts/register/', a.register, name='register'),
     path('groups/join/', a.join_group, name='join_group'),
     path('groups/requests/<int:application_id>/cancel/', a.join_cancel, name='join_cancel'),
+    path('groups/invitations/<int:invite_id>/respond/', collabs.direct_invite_respond_view, name='direct_invite_respond'),
     path('logout/', auth.LogoutView.as_view(), name='logout'),
     path('accounts/password/', v.PlatformPasswordChangeView.as_view(), name='password_change'),
     path('accounts/password/done/', TemplateView.as_view(template_name='registration/password_change_done.html'), name='password_change_done'),
     path('', workspace.entry, name='home'), path('guide/', v.guide, name='guide'),
     path('projects/', workspace.projects, name='projects'),
     path('projects/new/', v.project_new, name='project_new'),
+    path('projects/trash/', lifecycle.trash_list, name='projects_trash'),
+    path('projects/trash/empty/', lifecycle.trash_empty_view, name='projects_trash_empty'),
+    path('projects/<int:project_id>/restore/', lifecycle.project_restore_view, name='project_restore'),
+    path('projects/<int:project_id>/purge/', lifecycle.project_purge_view, name='project_purge'),
     path('p/<int:project_id>/', v.project_view, name='project'),
+    path('p/<int:project_id>/trash/', lifecycle.project_trash_view, name='project_trash'),
     path('p/<int:project_id>/members/', v.members, name='members'),
+    path('p/<int:project_id>/members/collaborators/', collabs.collaborator_action_view, name='collaborator_action'),
+    path('p/<int:project_id>/members/invitations/<int:invite_id>/cancel/', collabs.direct_invite_cancel_view, name='direct_invite_cancel'),
     path('p/<int:project_id>/team-setup/', team.team_setup, name='team_setup'),
     path('p/<int:project_id>/invitation/', a.invitation_manage, name='invitation_manage'),
     path('p/<int:project_id>/requests/<int:application_id>/review/', a.join_review, name='join_review'),
@@ -78,6 +89,7 @@ urlpatterns = [
     path('r/<int:round_id>/manage/', v.round_manage, name='round_manage'),
     path('r/<int:round_id>/review/', v.review, name='review'),
     path('r/<int:round_id>/disagreements/', v.disagreement_queue, name='disagreements'),
+    path('r/<int:round_id>/codes/<int:code_id>/promote/', source_rounds.promote_private_code_view, name='promote_private_code'),
     path('r/<int:round_id>/report/', v.reliability, name='reliability'),
     path('r/<int:round_id>/export/<str:mode>/', v.export_round, name='export_round'),
     path('api/assignments/<int:assignment_id>/save/', v.assignment_save, name='assignment_save'),

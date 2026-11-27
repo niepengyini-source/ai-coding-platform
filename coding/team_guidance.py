@@ -29,14 +29,21 @@ def team_setup(request, project_id):
         application.review_form = JoinReviewForm(auto_id=f'team-request-{application.pk}-%s',
             initial={'revision': application.revision, 'role': 'coder'})
     stage = 3 if collaborator_count else 2 if valid_invitation or requests_page.paginator.count else 1
+    from .collaborator_invites import historical_collaborators, pending_direct_invites
+    sent_invites = pending_direct_invites(project)
+    if stage == 1 and sent_invites:
+        stage = 2
     return render(request, 'coding/team_setup.html', {
         'project': project, 'role': role, 'team_stage': stage,
         'team_steps': [{'number': i, 'label': label, 'current': i == stage, 'complete': i < stage}
-                       for i, label in enumerate(('生成邀请码', '成员加入与审核', '开始协作'), 1)],
+                       for i, label in enumerate(('邀请或选择成员', '成员加入与审核', '开始协作'), 1)],
         'invitation': invitation, 'valid_invitation': valid_invitation, 'new_code': new_code,
         'invite_form': InvitationForm(initial={'revision': invitation.revision if invitation else 0, 'days': 7}),
         'requests_page': requests_page, 'collaborator_count': collaborator_count,
         'collaborators': collaborators[:20],
-        'has_team_tasks': project.rounds.exclude(kind='quick').filter(assignments__superseded=False).exists(),
+        'has_team_tasks': (project.rounds.exclude(kind='quick').filter(assignments__superseded=False).exists()
+                           or project.rounds.exclude(kind='quick').filter(source_tasks__isnull=False).exists()),
+        'historical_members': historical_collaborators(project, request.user),
+        'sent_direct_invites': sent_invites,
         'now': now,
     })

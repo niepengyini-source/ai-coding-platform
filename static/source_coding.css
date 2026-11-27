@@ -28,7 +28,7 @@
 .source-reading-heading h2 {font-size:15px;line-height:1.6;overflow-wrap:anywhere;margin-bottom:4px;}
 .source-reading-heading .hint {font-size:11px;}
 .source-reading-heading .button {min-height:34px;font-size:12px;padding:6px 10px;white-space:nowrap;}
-.source-reading-scroll {overflow:auto;overscroll-behavior:contain;scrollbar-width:thin;min-height:0;flex:1;padding:16px 28px 24px;scroll-padding-block:18px;}
+.source-reading-scroll {overflow:auto;overscroll-behavior:contain;scrollbar-width:thin;min-height:0;flex:1;padding:16px 28px 24px;scroll-padding-block:18px;background:#fcfcfd;}
 .source-image-tools {display:grid;justify-items:start;gap:8px;margin-bottom:14px;}
 .source-image-tools summary {cursor:pointer;}
 .source-image-coordinates {display:grid;grid-template-columns:repeat(2,minmax(0,1fr));gap:8px;margin-block:8px;}
@@ -42,7 +42,9 @@
 .source-text-block [data-source-text] {font-size:18px;line-height:1.85;white-space:pre-wrap;overflow-wrap:anywhere;}
 .source-text-block h2[data-source-text] {font-size:20px;margin:8px 0;}
 .source-text-block mark {background:var(--accent-soft);color:var(--ink);border-radius:2px;cursor:pointer;text-decoration:underline;text-decoration-color:var(--accent-line);text-underline-offset:4px;}
+.source-text-block mark.source-peer-mark {background:#eef2ff;text-decoration-color:#a5b4fc;text-decoration-style:dashed;}
 .source-text-block mark[data-source-current=true] {outline:1px solid var(--blue);text-decoration-color:var(--blue);text-decoration-thickness:2px;}
+.source-peer-list small {color:var(--indigo, #4338ca);}
 .source-reading-pagination {display:flex;align-items:center;justify-content:center;flex-wrap:wrap;gap:8px 18px;padding:13px 16px;border-top:1px solid var(--line);font-size:12px;flex-shrink:0;}
 .source-reading-pagination .hint {font-size:11px;}
 .source-coding-panel {display:flex;flex-direction:column;min-width:0;min-height:0;border-left:1px solid var(--line);}
@@ -54,7 +56,8 @@
 .source-coding-fields fieldset:disabled {opacity:.65;}
 .source-coding-fields label {font-size:13px;}
 .source-coding-fields .check-line {margin-block:12px;}
-.source-coding-fields :is(input[type=text],input:not([type]),textarea) {border-radius:9px;background:var(--subtle);}
+.source-coding-fields :is(input[type=text],input[type=search],input:not([type]),textarea) {border-radius:9px;background:#fff;border-color:var(--control-border);}
+.source-coding-fields fieldset:disabled :is(input[type=text],input[type=search],input:not([type]),textarea) {background:var(--subtle);}
 .source-code-list {display:grid;gap:12px;}
 .source-coding-fields input[type=search] {margin-bottom:14px;}
 .source-code-group>p {font-size:13px;margin:0 0 8px;}

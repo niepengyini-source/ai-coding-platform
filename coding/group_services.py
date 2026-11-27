@@ -65,6 +65,8 @@ def request_membership(user, code, note):
     if not invitation:
         raise ValueError('邀请码无效、已过期或已停用，请联系负责人获取新的邀请码。')
     project = Project.objects.select_for_update().get(pk=invitation.project_id)
+    if project.trashed_at is not None:
+        raise ValueError('邀请码无效、已过期或已停用，请联系负责人获取新的邀请码。')
     # Recheck after acquiring the same lock used for rotation/revocation.
     invitation = ProjectInvitation.objects.filter(project=project, code_digest=digest,
         enabled=True, expires_at__gt=timezone.now()).first()

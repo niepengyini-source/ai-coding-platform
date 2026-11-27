@@ -1,4 +1,5 @@
 {% extends 'base.html' %}
+{% block title %}项目备份与归档 · {{ project.name }} · AI辅助编码平台{% endblock %}
 {% block content %}
 <div class="page-heading"><h1>项目备份与归档</h1></div>
 {% include 'coding/source_export_links.html' %}
@@ -12,7 +13,7 @@
 <p>{{ search_form.metadata_field.label_tag }}{{ search_form.metadata_field.errors }}{{ search_form.metadata_field }}</p><p>{{ search_form.metadata_value.label_tag }}{{ search_form.metadata_value.errors }}{{ search_form.metadata_value }}</p><p>{{ search_form.start.label_tag }}{{ search_form.start.errors }}{{ search_form.start }}</p><p>{{ search_form.end.label_tag }}{{ search_form.end.errors }}{{ search_form.end }}</p></div>
 <p>{{ search_form.include_superseded }} {{ search_form.include_superseded.label }}{{ search_form.include_superseded.errors }}</p><p class="hint">组别筛选：填写原文件中的字段名和对应值。时间按北京时间。</p><button class="button secondary" type="submit" name="action" value="preview" formnovalidate>应用筛选</button></details>
 {% if error %}<div class="notice danger" role="alert">{{ error }}</div>{% endif %}
-<div class="section-heading"><h2>找到 {{ page.paginator.count }} 条记录</h2><a href="{% url 'archive' project.id %}">清除筛选</a></div>
+<div class="section-heading"><h2>找到 {{ page.paginator.count }} 条记录</h2><div class="button-row">{% if preview %}<button class="button secondary" type="button" data-archive-page-select="all">勾选本页</button><button class="button secondary" type="button" data-archive-page-select="none">取消本页</button>{% endif %}<a href="{% url 'archive' project.id %}">清除筛选</a></div></div>
 <p class="hint">最近保存的在前，每页 25 条。“全部匹配”包含所有页；“前 N 条”从全部结果取最新 N 条；“本页勾选”只导出当前页，不保留其他页的勾选。</p>
 <div class="table-wrap"><table class="history-table"><thead><tr><th>选择</th><th>保存时间 / 编码员</th><th>材料与批次</th><th>编码</th><th>状态</th></tr></thead><tbody>
 {% for a in preview %}<tr><td><input type="checkbox" name="selected" value="{{ a.pk }}" aria-label="选择编码记录 {{ a.pk }}" {% if a.archive_checked %}checked{% endif %}></td><td>{{ a.updated_at|date:'Y-m-d H:i:s' }}<small class="block muted">{{ a.coder.username }} · #{{ a.pk }}</small></td><td><strong>单元 #{{ a.unit_id }}</strong><p class="preserve">{{ a.unit.text|truncatechars:130 }}</p><small class="block muted">{{ a.unit.record.document.name }} · {{ a.round.name }}</small><small class="block muted">{{ a.metadata_preview|truncatechars:160 }}</small></td><td>{% if a.parallel_display %}{{ a.parallel_display|join:'；' }}{% elif a.primary %}{{ a.primary }}{% elif a.no_code %}无适用代码{% else %}尚未选代码{% endif %}{% if a.secondary_display %}<small class="block">次代码：{{ a.secondary_display|join:'；' }}</small>{% endif %}</td><td>{{ a.get_status_display }}{% if a.superseded %}<small class="block muted">已拆分的原记录</small>{% endif %}</td></tr>{% empty %}<tr><td colspan="5" class="empty-cell">暂无匹配记录。</td></tr>{% endfor %}</tbody></table></div>

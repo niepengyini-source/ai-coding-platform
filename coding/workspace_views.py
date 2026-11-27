@@ -6,11 +6,11 @@ from django.db.models.functions import Coalesce
 from django.shortcuts import render
 from django.urls import reverse
 
-from .models import Assignment, AuditEvent, Membership
+from .models import Assignment, AuditEvent, Membership, Project
 
 
 def _memberships(user):
-    return (user.membership_set.select_related('project')
+    return (user.membership_set.filter(project__trashed_at__isnull=True).select_related('project')
             .annotate(project_updated_at=Coalesce(Max('project__auditevent__created_at'),
                                                  'project__created_at'))
             .order_by('-project_updated_at', '-project_id'))
@@ -28,7 +28,14 @@ def projects(request):
     _add_collaboration_cards(memberships, request.user)
     from .source_progress import attach_project_cards
     attach_project_cards(memberships, request.user)
-    return render(request, 'coding/projects.html', {'memberships': memberships})
+    from .collaborator_invites import received_direct_invites
+    trashed_count = Project.objects.filter(memberships__user=request.user, memberships__role='owner',
+                                           trashed_at__isnull=False).count()
+    return render(request, 'coding/projects.html', {
+        'memberships': memberships,
+        'trashed_count': trashed_count,
+        'received_invitations': received_direct_invites(request.user),
+    })
 
 
 def _add_coding_progress(memberships, user):
@@ -86,7 +93,8 @@ def _add_collaboration_cards(memberships, user):
 
     def priority(entry):
         active = entry['state'] == 'active'
-        return (active, active and entry['my_total'] > entry['my_submitted'],
+        review = entry['state'] == 'review'
+        return (active, review, active and entry['my_total'] > entry['my_submitted'],
                 active and entry['total'] > entry['submitted'],
                 entry['created_at'], entry['round_id'])
 
@@ -135,8 +143,10 @@ def _add_collaboration_cards(memberships, user):
 
 
 def group_context(request):
+    from .collaborator_invites import received_direct_invites
     return {
         'joined_memberships': _memberships(request.user).exclude(role='owner'),
-        'applications': Paginator(request.user.project_join_requests.select_related('project'), 10)
-            .get_page(request.GET.get('requests_page')),
+        'received_invitations': received_direct_invites(request.user),
+        'applications': Paginator(request.user.project_join_requests.filter(project__trashed_at__isnull=True)
+                                  .select_related('project'), 10).get_page(request.GET.get('requests_page')),
     }

@@ -1,5 +1,16 @@
 {% extends 'base.html' %}{% block title %}加入小组 · AI辅助编码平台{% endblock %}{% block content %}
 <div class="page-heading"><h1>加入小组</h1></div>
+{% if received_invitations %}
+<section class="card narrow direct-invite-banner" aria-label="收到的项目邀请">
+  <h2>收到的直接邀请（无需邀请码）</h2>
+  {% for inv in received_invitations %}
+  <div class="application-row">
+    <div><strong>{{ inv.project.name }}</strong> · <span class="badge indigo">{{ inv.get_role_display }}</span><p class="hint">邀请人：{{ inv.inviter.username }} · {{ inv.created_at|date:'Y.m.d H:i' }}</p></div>
+    <form action="{% url 'direct_invite_respond' inv.id %}" method="post" class="button-row">{% csrf_token %}<input type="hidden" name="from_page" value="join_group"><button class="button" type="submit" name="action" value="accept">同意加入</button><button class="button secondary" type="submit" name="action" value="decline">暂不加入</button></form>
+  </div>
+  {% endfor %}
+</section>
+{% endif %}
 <section class="card narrow"><h2>输入邀请码</h2><form method="post">{% csrf_token %}{{ form.as_p }}<div class="button-row"><button class="button" type="submit">提交加入申请</button><a class="button secondary" href="{% url 'projects' %}">我的项目</a></div></form></section>
 <section class="card narrow"><h2>已加入的小组项目</h2>{% for membership in joined_memberships %}<a class="list-row" href="{% url 'project' membership.project.id %}"><span>{{ membership.project.name }}</span><span>进入项目 →</span></a>{% empty %}<p class="muted">暂无项目</p>{% endfor %}</section>
 {% if applications %}<section class="card narrow"><h2>我的加入申请</h2>

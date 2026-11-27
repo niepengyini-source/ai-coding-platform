@@ -2,6 +2,7 @@
 import hashlib
 from django.core.exceptions import PermissionDenied
 from django.db import transaction
+from django.db.models import Q
 
 from .models import AuditEvent, Code, Codebook, Membership, Project, Round, SourceDocument
 from .source_models import SourceAnnotation, SourceCodingTask
@@ -45,6 +46,17 @@ def progress_for(round_obj, actor):
 
 def code_data(code):
     return {'id': code.pk, 'key': code.key, 'name': code.name, 'definition': code.definition}
+
+
+def visible_codes_for(round_obj, actor, role='coder'):
+    book = round_obj.book
+    if round_obj.sampling.get('collab_mode') == 'sync':
+        return book.codes.filter(private_coder__isnull=True)
+    if round_obj.state != 'active' and role in ('owner', 'reviewer') and round_obj.kind != 'quick':
+        return book.codes.all()
+    if round_obj.sampling.get('collab_mode') == 'independent':
+        return book.codes.filter(Q(private_coder__isnull=True) | Q(private_coder=actor))
+    return book.codes.filter(Q(private_coder__isnull=True) | Q(private_coder=actor))
 
 
 def source_annotation_data(annotation, overview=False):
@@ -99,7 +111,7 @@ def coding_documents(project):
 
 
 @transaction.atomic
-def start_source_coding(project, actor, book_id, document_ids=None):
+def start_source_coding(project, actor, book_id, document_ids=None, *, collab_mode=None):
     Project.objects.select_for_update().get(pk=project.pk)
     role = _member(project.pk, actor)
     requested = Codebook.objects.filter(project=project, pk=book_id).first()
@@ -116,8 +128,11 @@ def start_source_coding(project, actor, book_id, document_ids=None):
     if not any(document.normalized.get('type') == 'image' or
                any(record.text.strip() for record in document.records.all()) for document in documents):
         raise ValueError('请先导入图片或具有可读文字的材料。')
-    existing = Round.objects.filter(project=project, kind='quick', started_by=actor, state='active',
-        sampling__source_coding=True, book_id__in={requested.pk, current.pk}).order_by('-id').first()
+    existing_qs = Round.objects.filter(project=project, kind='quick', started_by=actor, state='active',
+        sampling__source_coding=True, book_id__in={requested.pk, current.pk})
+    if collab_mode in ('independent', 'sync'):
+        existing_qs = existing_qs.filter(sampling__collab_mode=collab_mode)
+    existing = existing_qs.order_by('-id').first()
     if existing:
         for document in documents:
             SourceCodingTask.objects.get_or_create(round=existing, document=document, coder=actor)
@@ -125,34 +140,44 @@ def start_source_coding(project, actor, book_id, document_ids=None):
     if requested.pk != current.pk:
         raise Conflict('编码本已更新，请刷新后使用当前规则。')
     book = requested
-    if book.frozen and role in ('owner', 'reviewer'):
+    if book.frozen and role in ('owner', 'reviewer') and collab_mode != 'independent':
         book = clone_book(project, actor, book, book.title, book.policy, '原文选段使用独立可编辑稿，保留旧任务规则。')
-    round_obj = Round.objects.create(project=project, book=book, name='我的原文编码', kind='quick', started_by=actor,
-        sampling={'source_coding': True, 'open_coding': True, 'document_ids': [d.pk for d in documents]})
+    sampling = {'source_coding': True, 'open_coding': True, 'document_ids': [d.pk for d in documents]}
+    if collab_mode in ('independent', 'sync'):
+        sampling['collab_mode'] = collab_mode
+        sampling['allow_coder_codes'] = True
+    round_obj = Round.objects.create(project=project, book=book, name='我的原文编码', kind='quick',
+                                     started_by=actor, sampling=sampling)
     SourceCodingTask.objects.bulk_create([SourceCodingTask(round=round_obj, document=d, coder=actor) for d in documents])
     audit(project, actor, 'source.start', round_obj,
-          after={'documents': [d.pk for d in documents], 'book_id': book.pk, 'personal': True})
+          after={'documents': [d.pk for d in documents], 'book_id': book.pk, 'personal': True,
+                 **({'collab_mode': collab_mode} if collab_mode else {})})
     return round_obj, True
 
 
 @transaction.atomic
 def add_workspace_code(round_id, actor, data):
     round_obj = _lock_round(round_id, actor)
+    role = _member(round_obj.project_id, actor)
     code = _add_workspace_code(round_obj, actor, data)
     book = round_obj.book
-    return {'code': code_data(code), 'codes': [code_data(c) for c in book.codes.all()],
+    return {'code': code_data(code), 'codes': [code_data(c) for c in visible_codes_for(round_obj, actor, role)],
             'book_id': book.pk, 'book_revision': book.revision}
 
 
 def _add_workspace_code(round_obj, actor, data, *, keep_existing_definition=False):
-    if _member(round_obj.project_id, actor) not in ('owner', 'reviewer'):
+    role = _member(round_obj.project_id, actor)
+    allow_coder = bool(round_obj.sampling.get('allow_coder_codes'))
+    if role not in ('owner', 'reviewer') and not (allow_coder and role == 'coder'):
         raise PermissionDenied
     if round_obj.state != 'active' or not (round_obj.sampling.get('open_coding') or round_obj.sampling.get('source_coding')):
         raise ValueError('本批次使用固定规则，请在编码本管理中更新规则。')
     book = round_obj.book
-    if _integer(data.get('book_id'), '编码本编号') != book.pk or _integer(data.get('revision'), '编码本版本') != book.revision:
+    is_private = round_obj.sampling.get('collab_mode') == 'independent'
+    if _integer(data.get('book_id'), '编码本编号') != book.pk or (
+            not is_private and _integer(data.get('revision'), '编码本版本') != book.revision):
         raise Conflict('编码规则已变化，输入仍保留，请刷新代码列表后再试。')
-    if book.frozen:
+    if book.frozen and not is_private:
         raise Conflict('当前规则已用于固定任务。请通过“更新编码本”生成可编辑版本，旧记录不会被覆盖。')
     name, definition = data.get('name'), data.get('definition', '')
     if not isinstance(name, str) or not 1 <= len(name.strip()) <= 100:
@@ -160,7 +185,10 @@ def _add_workspace_code(round_obj, actor, data, *, keep_existing_definition=Fals
     if not isinstance(definition, str) or len(definition) > 20000:
         raise ValueError('代码定义最多20000个字符。')
     name, definition = name.strip(), definition.strip()
-    existing = book.codes.filter(name__iexact=name).first()
+    target_private = actor if is_private else None
+    existing = (book.codes.filter(name__iexact=name, private_coder=actor).first()
+                or book.codes.filter(name__iexact=name, private_coder__isnull=True).first()) if is_private else (
+                book.codes.filter(name__iexact=name, private_coder__isnull=True).first())
     if existing:
         if existing.definition != definition and (definition or not keep_existing_definition):
             raise ValueError('已有相同名称的代码，请复用或在编码本中编辑定义。')
@@ -170,11 +198,13 @@ def _add_workspace_code(round_obj, actor, data, *, keep_existing_definition=Fals
         index = 1
         while f'C{index:03d}' in keys:
             index += 1
-        code = Code.objects.create(book=book, key=f'C{index:03d}', name=name, definition=definition)
-        book.revision += 1
-        book.save(update_fields=['revision'])
+        code = Code.objects.create(book=book, key=f'C{index:03d}', name=name,
+                                   definition=definition, private_coder=target_private)
+        if not is_private:
+            book.revision += 1
+            book.save(update_fields=['revision'])
         audit(round_obj.project, actor, 'code.add_during_coding', code,
-              after={'book_id': book.pk, **code_data(code)})
+              after={'book_id': book.pk, 'private': is_private, **code_data(code)})
     return code
 
 
@@ -251,6 +281,11 @@ def save_source_annotation(task_id, actor, data):
                     and _integer(secondary[0], '次代码') == code.pk):
                 data['secondary'] = []
     values = validate_labels(round_obj.book, data, submitting=True)
+    chosen_ids = (values.get('labels', []) if round_obj.book.policy == 'parallel'
+                  else ([values['primary_id']] if values['primary_id'] else []) + values['secondary'])
+    allowed_ids = set(visible_codes_for(round_obj, actor).values_list('pk', flat=True))
+    if not set(chosen_ids).issubset(allowed_ids):
+        raise ValueError('只能使用当前可见编码本中的代码。')
     before = source_annotation_data(annotation) if annotation else {}
     if annotation is None:
         annotation = SourceAnnotation(task=task, start=start, end=end, text=text[start:end], region=region)

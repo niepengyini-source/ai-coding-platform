@@ -16,6 +16,7 @@ class Project(models.Model):
     goal = models.TextField(blank=True)
     description = models.TextField(blank=True)
     owner = models.ForeignKey(UserRef, on_delete=models.PROTECT)
+    trashed_at = models.DateTimeField(null=True, blank=True, db_index=True)
     revision = models.PositiveIntegerField(default=0)
     created_at = models.DateTimeField(auto_now_add=True)
 
@@ -62,6 +63,22 @@ class ProjectJoinRequest(models.Model):
         ordering = ['-requested_at', '-id']
 
 
+class ProjectDirectInvitation(models.Model):
+    STATES = [('pending', '待确认'), ('accepted', '已接受'), ('declined', '已谢绝'), ('cancelled', '已撤回')]
+    project = models.ForeignKey(Project, on_delete=models.CASCADE, related_name='direct_invitations')
+    inviter = models.ForeignKey(UserRef, on_delete=models.PROTECT, related_name='sent_project_invitations')
+    invitee = models.ForeignKey(UserRef, on_delete=models.PROTECT, related_name='received_project_invitations')
+    role = models.CharField(max_length=12, choices=Membership.ROLES[1:], default='coder')
+    status = models.CharField(max_length=12, choices=STATES, default='pending')
+    revision = models.PositiveIntegerField(default=1)
+    created_at = models.DateTimeField(default=timezone.now)
+    responded_at = models.DateTimeField(null=True, blank=True)
+
+    class Meta:
+        constraints = [models.UniqueConstraint(fields=['project', 'invitee'], name='unique_project_direct_invite')]
+        ordering = ['-created_at', '-id']
+
+
 class Codebook(models.Model):
     project = models.ForeignKey(Project, on_delete=models.CASCADE, related_name='codebooks')
     version = models.PositiveIntegerField()
@@ -83,6 +100,8 @@ class Code(models.Model):
     key = models.CharField(max_length=40)
     name = models.CharField(max_length=100)
     parent = models.ForeignKey('self', null=True, blank=True, on_delete=models.PROTECT)
+    private_coder = models.ForeignKey(UserRef, null=True, blank=True, on_delete=models.PROTECT,
+                                      related_name='private_open_codes')
     definition = models.TextField()
     include_when = models.TextField(blank=True)
     exclude_when = models.TextField(blank=True)

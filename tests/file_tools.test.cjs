@@ -43,3 +43,37 @@ test('export content switch only submits relevant options and retains previous s
   target.value='codebook';change();
   assert.equal(sections['[data-export-history]'].input.disabled,true);
 });
+
+test('changing export target marks existing preview stale and disables download until reloaded',()=>{
+  let onTargetChange;
+  const target={name:'target',type:'select-one',value:'mine',disabled:false,addEventListener:(_,fn)=>{onTargetChange=fn;}};
+  const book={name:'book',type:'select-one',value:'4',disabled:false};
+  const round={name:'round',type:'select-one',value:'9',disabled:false};
+  const history={name:'include_inactive',type:'checkbox',checked:false,disabled:false};
+  const sections={
+    '[data-export-book]':{hidden:false,querySelectorAll:()=>[book]},
+    '[data-export-round]':{hidden:false,querySelectorAll:()=>[round]},
+    '[data-export-history]':{hidden:false,querySelectorAll:()=>[history]},
+  };
+  const reloadBtn={classList:{secondary:true,toggle(cls,val){this[cls]=val;}}};
+  const staleHint={hidden:true};
+  const downloadBtn={disabled:false};
+  const sourceForm={
+    querySelector:sel=>sel==='[name="target"]'?target:sel==='button[type="submit"]'?reloadBtn:sections[sel],
+    querySelectorAll:()=>[target,book,round,history],
+  };
+  const optionsForm={
+    querySelector:sel=>sel==='[data-export-stale-hint]'?staleHint:sel==='button[name="action"][value="download"]'?downloadBtn:null,
+    querySelectorAll:()=>[],
+  };
+  vm.runInNewContext(source,{document:{getElementById:id=>id==='export-source'?sourceForm:id==='export-options'?optionsForm:null}});
+  assert.equal(downloadBtn.disabled,false);
+  assert.equal(staleHint.hidden,true);
+  target.value='codebook';onTargetChange();
+  assert.equal(downloadBtn.disabled,true);
+  assert.equal(staleHint.hidden,false);
+  assert.equal(reloadBtn.classList.secondary,false);
+  target.value='mine';onTargetChange();
+  assert.equal(downloadBtn.disabled,false);
+  assert.equal(staleHint.hidden,true);
+});

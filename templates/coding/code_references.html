@@ -11,9 +11,9 @@
     <span class="muted">{{ page.paginator.count }} 条引用</span></div>
   {% for row in page %}
   <article class="reference-record">
-    <div class="section-heading"><h3>{{ row.filename }}</h3>
+    <div class="section-heading"><h3>{{ row.location }} · {{ row.filename }}</h3>
       <span class="badge{% if row.state == 'submitted' %} green{% endif %}">{% if row.state == 'draft' %}草稿{% elif row.state == 'submitted' %}已提交{% else %}已保存{% endif %}</span></div>
-    <p class="reference-context">{% if row.sheet %}{{ row.sheet }} · {% endif %}{{ row.location }} · {{ row.batch }}</p>
+    <p class="reference-context">{% if row.sheet %}{{ row.sheet }} · {% endif %}{{ row.batch }}</p>
     {% if row.excerpt %}<blockquote>{{ row.excerpt|truncatechars:400 }}</blockquote>{% endif %}
     <a href="{% if row.source_task %}{% url 'workbench' row.batch_id %}?task={{ row.source_task }}&amp;annotation={{ row.pk }}{% else %}{% url 'history_detail' project.pk row.pk %}{% endif %}">{% if row.area %}查看框选区域{% elif row.source_task %}定位原文片段{% else %}查看编码单元{% endif %} →</a>
   </article>

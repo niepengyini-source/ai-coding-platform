@@ -1,18 +1,19 @@
 {% extends 'base.html' %}
+{% block title %}邀请成员协作 · {{ project.name }} · AI辅助编码平台{% endblock %}
 {% block content %}
 <div class="page-heading heading-row"><div><h1>邀请成员协作</h1><p>这是可选流程，你也可以直接开始个人编码。</p></div><a class="button secondary" href="{% url 'project' project.id %}">返回项目</a></div>
 <section class="card setup-guide" aria-label="邀请成员指引" data-team-stage="{{ team_stage }}">
   <ol class="setup-steps" aria-label="邀请成员步骤">{% for step in team_steps %}<li class="{% if step.complete %}is-complete{% endif %}"{% if step.current %} aria-current="step"{% endif %}><span class="setup-step-number" aria-hidden="true">{% if step.complete %}✓{% else %}{{ step.number }}{% endif %}</span><span>{{ step.label }}</span></li>{% endfor %}</ol>
   <div class="setup-next-row"><div>{% if team_stage == 1 %}<h2>第一步：生成邀请码</h2><p>在下方选择有效期，再把邀请码和局域网平台地址发给同伴。</p>{% elif team_stage == 2 %}<h2>等待成员申请，核对后同意加入</h2><p>同伴自行注册，在“加入小组”填写邀请码；申请会显示在下方。</p>{% else %}<h2>已有 {{ collaborator_count }} 位可协作成员</h2><p>{% if not has_team_tasks %}需要分工时，可先安排团队任务，再开始编码。{% else %}可以继续编码，也可以查看成员任务进度。{% endif %}</p>{% endif %}</div>
-  {% if team_stage == 3 %}<div class="button-row"><a class="button" href="{% url 'coding_entry' project.id %}">开始／继续编码 →</a><a class="button secondary" href="{% url 'progress' project.id %}">查看成员进度</a></div>{% elif team_stage == 2 %}<a class="button secondary" href="{% url 'team_setup' project.id %}">刷新加入申请</a>{% endif %}</div>
+  {% if team_stage == 3 %}<div class="button-row"><a class="button" href="{% url 'coding_entry' project.id %}">开始／继续编码 →</a><a class="button secondary" href="{% url 'round_new' project.id %}">安排团队任务</a><a class="button secondary" href="{% url 'progress' project.id %}">查看成员进度</a></div>{% elif team_stage == 2 %}<a class="button secondary" href="{% url 'team_setup' project.id %}">刷新加入申请</a>{% endif %}</div>
 </section>
-{% if team_stage == 3 %}<p><a href="{% url 'round_new' project.id %}">安排团队任务</a></p>{% endif %}
-<section class="card" id="team-invitation"><h2>邀请同伴加入</h2>
+{% include 'coding/collaborator_picker.html' with is_team_setup=True %}
+<section class="card" id="team-invitation"><h2>新成员邀请码（尚无合作记录的新同伴适用）</h2>
   {% if new_code %}<div class="notice"><label for="team-invitation-code">新邀请码（仅本次显示，请复制）</label><input id="team-invitation-code" type="text" value="{{ new_code }}" readonly autocomplete="off"><p class="hint">把局域网平台地址和邀请码发给同伴，等他们注册后申请加入。</p></div>{% endif %}
   {% if invitation %}<p>{% if not invitation.enabled %}<span class="badge amber">已停用</span>{% elif invitation.expires_at <= now %}<span class="badge amber">已过期</span>{% else %}<span class="badge green">有效</span>{% endif %} · 有效期至 {{ invitation.expires_at|date:'Y.m.d H:i' }}</p>{% endif %}
   {% if team_stage != 1 %}<details class="import-details"><summary>重新生成或停用邀请码</summary><p class="hint">邀请码只在生成后显示一次；重新生成会使旧码失效，已提交申请仍可审核。</p>{% endif %}
   <form action="{% url 'invitation_manage' project.id %}" method="post">{% csrf_token %}<input type="hidden" name="team_setup" value="yes">{{ invite_form.as_p }}<button class="button" type="submit" name="action" value="issue">{% if invitation %}生成新邀请码{% else %}生成邀请码{% endif %}</button></form>
-  {% if invitation.enabled %}<form action="{% url 'invitation_manage' project.id %}" method="post" class="invite-revoke">{% csrf_token %}<input type="hidden" name="team_setup" value="yes"><input type="hidden" name="revision" value="{{ invitation.revision }}"><input type="hidden" name="days" value="7"><button class="button secondary" type="submit" name="action" value="revoke">停用当前邀请码</button></form>{% endif %}
+  {% if invitation.enabled and invitation.expires_at > now %}<form action="{% url 'invitation_manage' project.id %}" method="post" class="invite-revoke">{% csrf_token %}<input type="hidden" name="team_setup" value="yes"><input type="hidden" name="revision" value="{{ invitation.revision }}"><input type="hidden" name="days" value="7"><button class="button secondary" type="submit" name="action" value="revoke">停用当前邀请码</button></form>{% endif %}
   {% if team_stage != 1 %}</details>{% endif %}
 </section>
 <section class="card"><div class="section-heading"><h2>待审核申请 · {{ requests_page.paginator.count }} 个</h2><a href="{% url 'team_setup' project.id %}">刷新申请</a></div>
@@ -20,5 +21,5 @@
   {% if requests_page.has_other_pages %}<nav class="pagination" aria-label="加入申请分页">{% if requests_page.has_previous %}<a href="?join_page={{ requests_page.previous_page_number }}">上一页</a>{% endif %}<span>{{ requests_page.number }} / {{ requests_page.paginator.num_pages }}</span>{% if requests_page.has_next %}<a href="?join_page={{ requests_page.next_page_number }}">下一页</a>{% endif %}</nav>{% endif %}
 </section>
 {% if collaborator_count %}<section class="card"><h2>可协作成员 · {{ collaborator_count }} 位</h2>{% for member in collaborators %}<div class="list-row"><strong>{{ member.user.username }}</strong><span class="badge">{{ member.get_role_display }}</span></div>{% endfor %}{% if collaborator_count > 20 %}<p><a href="{% url 'members' project.id %}">查看全部项目成员</a></p>{% endif %}</section>{% endif %}
-<div class="button-row"><a class="button secondary" href="{% url 'project' project.id %}">返回项目</a>{% if team_stage != 3 %}<a href="{% url 'coding_entry' project.id %}">先开始个人编码</a>{% endif %}</div>
+{% if team_stage != 3 %}<div class="button-row"><a class="button secondary" href="{% url 'coding_entry' project.id %}">先开始个人编码 →</a></div>{% endif %}
 {% endblock %}

@@ -1,4 +1,5 @@
 {% extends 'base.html' %}{% load review_labels %}
+{% block title %}编码详情 #{{ record.unit_id }} · {{ project.name }} · AI辅助编码平台{% endblock %}
 {% block content %}
 <div class="page-heading"><h1>编码详情</h1><p>{{ record.round.name }} · 单元 #{{ record.unit_id }} · v{{ record.round.book.version }}</p></div>
 {% if record.superseded %}<section class="notice"><strong>历史单元已停用，旧判断只读保留。</strong><div class="button-row">{% for child in record.segments.all %}<a class="button secondary" href="{% url 'workbench' record.round_id %}?a={{ child.id }}">片段 #{{ child.unit_id }}</a>{% endfor %}</div></section>{% endif %}

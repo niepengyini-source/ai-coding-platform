@@ -48,7 +48,7 @@
 .project-stats .stat strong{font-size:27px;margin:3px 0}
 .project-import .hint{margin:10px 0 0}
 .project-import-form input[type=file]{background:var(--subtle)!important;padding:14px!important}
-.workflow-hint{display:flex;align-items:center;justify-content:space-between;gap:18px;border-left:3px solid var(--accent-line);background:var(--accent-soft);padding:13px 17px;margin-bottom:22px;border-radius:0 8px 8px 0}
+.workflow-hint{display:flex;align-items:center;justify-content:space-between;gap:16px;border-left:3px solid var(--accent-line);background:var(--accent-soft);padding:10px 16px;margin-bottom:16px;border-radius:0 8px 8px 0}
 .workflow-hint>div{min-width:0}
 .workflow-hint strong{font-size:13px;color:var(--muted)}
 .workflow-hint p{font-size:12px;color:var(--muted);margin:3px 0 0}

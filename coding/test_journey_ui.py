@@ -211,3 +211,32 @@ class JourneyInterfaceTests(TestCase):
         self.assertIn('个人编码', stages)
         self.assertIn('编码结果与备份', stages)
         self.assertNotIn('正式编码', stages)
+
+    def test_persistent_stage_bar_respects_blind_coding_and_unlocks_in_review(self):
+        response = self.client.get(f'/p/{self.project.pk}/units/')
+        self.assertContains(response, 'aria-label="项目阶段导航"')
+        self.assertNotContains(response, f'href="/r/{self.r.pk}/disagreements/"')
+        self.assertContains(response, '4. 分歧与协商')
+        self.assertNotContains(self.client.get(f'/r/{self.r.pk}/'), 'aria-label="项目阶段导航"')
+        self.assertNotContains(self.client.get(f'/guide/?project={self.project.pk}'), 'aria-label="项目阶段导航"')
+        self.r.state = 'review'
+        self.r.save(update_fields=['state'])
+        unlocked = self.client.get(f'/p/{self.project.pk}/units/')
+        self.assertContains(unlocked, f'href="/r/{self.r.pk}/disagreements/"')
+
+    def test_frozen_codebook_uses_readonly_grid_and_clean_form_labels(self):
+        frozen_page = self.client.get(f'/p/{self.project.pk}/books/{self.book.pk}/')
+        self.assertContains(frozen_page, 'class="code-grid-readonly"')
+        self.assertNotContains(frozen_page, 'id="code-editor"')
+        overview = self.client.get(f'/p/{self.project.pk}/')
+        self.assertContains(overview, '研究目标：这次编码要回答什么？</label>')
+        self.assertNotContains(overview, '？:')
+
+    def test_reliability_report_displays_coder_usernames_directly(self):
+        self.r.assignments.update(status='submitted', primary=self.first)
+        self.r.state = 'review'
+        self.r.save(update_fields=['state'])
+        self.client.post(f'/r/{self.r.pk}/report/')
+        report_page = self.client.get(f'/r/{self.r.pk}/report/')
+        self.assertContains(report_page, '编码员配对')
+        self.assertContains(report_page, f'{self.owner.username} / {self.coder.username}')

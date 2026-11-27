@@ -58,6 +58,16 @@ def project_guidance(project, user, role, round_=None):
                       round_kind=source_round.kind, round_state=source_round.state,
                       progress={'submitted': progress['done'], 'total': progress['total'],
                                 'remaining': progress['total'] - progress['done'], 'scope': 'my'})
+        if source_round.kind != 'quick':
+            if source_round.state == 'review':
+                return show(5, '进入整篇协商与对比' if manager else '本轮正在协商汇总',
+                            '并排对比各成员划选片段与备注，并可将成员独立代码采纳进正式编码本。',
+                            '查看汇总对比' if manager else '查看编码进度',
+                            reverse('disagreements', args=[source_round.pk]) if manager else reverse('progress', args=[project.pk]))
+            if source_round.state == 'active' and manager and not source_round.source_tasks.filter(completed=False).exists():
+                return show(4, '全组已完成整篇材料编码',
+                            '所有分配材料均已标记完成，可前往轮次进度或工作台进入协商汇总对比。',
+                            '打开工作台进入协商', reverse('workbench', args=[source_round.pk]))
         return show(4, '继续原文编码' if source_round.state == 'active' else '回看原文编码',
                     '在阅读中确定片段、使用或新增代码；材料完成状态由本人确认。',
                     '打开编码工作台', reverse('workbench', args=[source_round.pk]))
@@ -94,9 +104,13 @@ def project_guidance(project, user, role, round_=None):
     own_pending = (rounds.filter(state='active', assignments__coder=user,
                                 assignments__superseded=False, assignments__status='draft')
                    .order_by('-assignments__updated_at', '-assignments__id').first())
-    participating = (rounds.filter(state__in=['active', 'review'], assignments__coder=user,
-                                   assignments__superseded=False).order_by('-id').first()) if not manager else None
-    current = (round_ or own_pending or participating or rounds.filter(state__in=['active', 'review']).order_by('-id').first()
+    participating = (rounds.filter(state='active', assignments__coder=user,
+                                   assignments__superseded=False).order_by('-id').first()
+                     or rounds.filter(state='review', assignments__coder=user,
+                                      assignments__superseded=False).order_by('-id').first()) if not manager else None
+    current = (round_ or own_pending or participating
+               or rounds.filter(state='active').order_by('-id').first()
+               or rounds.filter(state='review').order_by('-id').first()
                or rounds.order_by('-id').first())
     if not current:
         return show(3, '材料与编码本已准备好',

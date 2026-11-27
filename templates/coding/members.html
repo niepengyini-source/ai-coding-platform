@@ -1,9 +1,10 @@
-{% extends 'base.html' %}{% block content %}<div class="page-heading"><h1>项目成员</h1><p>成员自己注册，用邀请码申请加入；你核对身份并选择权限。一人一个账号，不共用密码。</p></div>
-<div class="two-columns"><section class="card"><h2>邀请同伴加入小组</h2>
+{% extends 'base.html' %}{% block title %}项目成员 · {{ project.name }} · AI辅助编码平台{% endblock %}{% block content %}<div class="page-heading"><h1>项目成员</h1><p>可从历史合作成员一键发送邀请或直接加入项目，也可生成邀请码供新同伴自行申请。一人一个账号，不共用密码。</p></div>
+{% include 'coding/collaborator_picker.html' with is_team_setup=False %}
+<div class="two-columns"><section class="card"><h2>新同伴通过邀请码申请（可选）</h2>
 {% if new_code %}<div class="notice"><label for="new-invitation">新邀请码（仅本次显示，请复制给同伴）</label><input id="new-invitation" type="text" value="{{ new_code }}" readonly autocomplete="off"><p class="hint">刷新后不再显示原码；遗失时生成新码。不要公开发布。</p></div>{% endif %}
 {% if invitation %}<p>{% if not invitation.enabled %}<span class="badge amber">已停用</span>{% elif invitation.expires_at <= now %}<span class="badge amber">已过期</span>{% else %}<span class="badge green">有效</span>{% endif %} · 有效期至 {{ invitation.expires_at|date:'Y.m.d H:i' }}</p>{% else %}<p class="muted">还未生成邀请码。生成后，让同伴自行注册并申请加入。</p>{% endif %}
 <form action="{% url 'invitation_manage' project.id %}" method="post">{% csrf_token %}{{ invite_form.as_p }}<input type="hidden" name="action" value="issue"><button class="button" type="submit">生成新邀请码</button></form>
-{% if invitation.enabled %}<form action="{% url 'invitation_manage' project.id %}" method="post" class="invite-revoke">{% csrf_token %}<input type="hidden" name="revision" value="{{ invitation.revision }}"><input type="hidden" name="days" value="7"><input type="hidden" name="action" value="revoke"><button class="button secondary" type="submit">停用当前邀请码</button></form>{% endif %}
+{% if invitation.enabled and invitation.expires_at > now %}<form action="{% url 'invitation_manage' project.id %}" method="post" class="invite-revoke">{% csrf_token %}<input type="hidden" name="revision" value="{{ invitation.revision }}"><input type="hidden" name="days" value="7"><input type="hidden" name="action" value="revoke"><button class="button secondary" type="submit">停用当前邀请码</button></form>{% endif %}
 <p class="hint">新码生成后，旧码立即失效。停用或过期不影响已加入成员；此前已提交的申请仍可审核。邀请码不能直接获得材料访问权限。</p></section>
 <section class="card"><h2>当前成员</h2>{% for m in members %}<div class="list-row"><strong>{{ m.user.username }}</strong><span class="badge">{{ m.get_role_display }}</span></div>{% endfor %}<p class="hint">复核者管理规则与协商；编码员处理自己的任务；只读成员查看项目材料，定稿后查看结果。只有负责人管理成员和加入申请。</p></section></div>
 <section class="card"><div class="section-heading"><h2>待审核的加入申请 <span class="muted small">{{ requests_page.paginator.count }} 个</span></h2><a href="{% url 'members' project.id %}">刷新申请</a></div>

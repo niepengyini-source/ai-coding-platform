@@ -48,9 +48,11 @@
   const completeButton = find('[data-source-complete]'), reloadButton = find('[data-source-reload]');
   const unsaved = document.querySelector('[data-source-unsaved]'), history = document.querySelector('[data-source-history]');
   const codeContainer = find('[data-source-code-list]'), overview = find('[data-source-annotation-list]');
+  const peerSection = find('[data-source-peer-section]'), peerOverview = find('[data-source-peer-list]');
+  const peerCount = find('[data-source-peer-count]');
   const source = points(data.text), pageStart = Number(data.start || 0);
   const csrf = form.querySelector('[name=csrfmiddlewaretoken]').value;
-  let selected = null, baseline = '', dirty = false, busy = false, conflicted = false, pending = null;
+  let selected = null, selectedPeerId = null, baseline = '', dirty = false, busy = false, conflicted = false, pending = null;
   let listLimit = 50, activeLoad = 0, guardResolve = null, suppressMarkClickUntil = 0;
   const scrollKey = `source-reading:${data.task.id}:${new URLSearchParams(location.search).get('reader_page') || 1}`;
   const field = name => form.querySelector(`[name=${name}]`);
@@ -146,19 +148,63 @@
       button.addEventListener('click', () => { listLimit += 50; renderList(); }); li.append(button); overview.append(li);
     }
     find('[data-source-count]').textContent = data.annotations.length;
+    renderPeerList();
+  }
+  function renderPeerList() {
+    if (!peerSection || !peerOverview) return;
+    const peers = [...(data.peer_annotations || [])].sort((l, r) => l.start - r.start || l.end - r.end || l.id - r.id);
+    peerSection.hidden = !peers.length;
+    if (peerCount) peerCount.textContent = peers.length;
+    peerOverview.replaceChildren();
+    peers.slice(0, listLimit).forEach(peer => {
+      const li = document.createElement('li'), button = document.createElement('button'), summary = document.createElement('small');
+      button.type = 'button'; button.textContent = selectionName(peer);
+      button.setAttribute('aria-current', String(selectedPeerId === peer.id));
+      summary.textContent = `${peer.coder} · ${codeSummary(peer)}`;
+      button.append(summary);
+      button.addEventListener('click', () => openPeerAnnotation(peer));
+      li.append(button); peerOverview.append(li);
+    });
+  }
+  async function openPeerAnnotation(peer) {
+    if (!(await settleDraft())) return;
+    const paragraph = [...reading.querySelectorAll('[data-source-text]')].find(el => Number(el.dataset.start) <= peer.start && Number(el.dataset.end) > peer.start);
+    if (!paragraph && !peer.region && peer.url && new URL(peer.url, location.href).search !== location.search) { location.assign(peer.url); return; }
+    selected = null; selectedPeerId = peer.id; baseline = ''; dirty = false; pending = null; conflicted = false;
+    clearNewCode(); renderCodes(); field('no_code').checked = false; field('uncertain').checked = false; field('note').value = '';
+    find('[data-source-selection-hint]').textContent = `同伴记录（${peer.coder}，只读参考；如需添加本人编码请直接划选原文）`;
+    const preview = find('[data-source-selection-text]'); preview.hidden = false;
+    preview.textContent = [selectionName(peer), `代码：${codeSummary(peer)}`, peer.note ? `备注：${peer.note}` : ''].filter(Boolean).join('\n');
+    find('[data-source-selection-position]').textContent = `编码员：${peer.coder} · 只读`;
+    setStatus(`正在查看 ${peer.coder} 的同步共享片段（只读）。`);
+    refreshControls(); renderList(); renderHighlights();
+    if (paragraph) reading.scrollTop += paragraph.getBoundingClientRect().top - reading.getBoundingClientRect().top - 18;
   }
   function renderHighlights() {
     showImageRegion(selected?.region);
+    const peerMarks = (data.peer_annotations || []).map(p => ({...p, id: -p.id}));
+    const combined = [...data.annotations, ...peerMarks];
     reading.querySelectorAll('[data-source-text]').forEach(paragraph => {
       const start = Number(paragraph.dataset.start), end = Number(paragraph.dataset.end);
       const text = source.slice(start - pageStart, end - pageStart).join('');
       const fragment = document.createDocumentFragment();
-      segments(text, start, data.annotations).forEach(piece => {
+      segments(text, start, combined).forEach(piece => {
         if (!piece.ids.length) fragment.append(document.createTextNode(piece.text));
         else {
-          const mark = document.createElement('mark'); mark.textContent = piece.text; mark.dataset.sourceAnnotations = piece.ids.join(',');
-          mark.dataset.sourceCurrent = String(piece.ids.includes(selected?.id)); mark.tabIndex = 0; mark.setAttribute('role', 'button');
-          mark.setAttribute('aria-label', `查看此处 ${piece.ids.length} 个已保存片段`); fragment.append(mark);
+          const ownIds = piece.ids.filter(id => id > 0);
+          const peerIds = piece.ids.filter(id => id < 0).map(id => -id);
+          const mark = document.createElement('mark'); mark.textContent = piece.text;
+          if (ownIds.length) {
+            mark.dataset.sourceAnnotations = ownIds.join(',');
+            mark.dataset.sourceCurrent = String(ownIds.includes(selected?.id));
+            mark.setAttribute('aria-label', `查看此处 ${ownIds.length} 个已保存片段`);
+          } else {
+            mark.className = 'source-peer-mark';
+            mark.dataset.sourcePeerAnnotations = peerIds.join(',');
+            mark.dataset.sourceCurrent = String(peerIds.includes(selectedPeerId));
+            mark.setAttribute('aria-label', `查看此处 ${peerIds.length} 个同伴共享片段`);
+          }
+          mark.tabIndex = 0; mark.setAttribute('role', 'button'); fragment.append(mark);
         }
       });
       paragraph.replaceChildren(fragment);
@@ -176,7 +222,7 @@
     refreshControls();
   }
   function displaySelection(value, saved = false) {
-    selected = {...value}; conflicted = false; pending = null;
+    selected = {...value}; selectedPeerId = null; conflicted = false; pending = null;
     clearNewCode();
     renderCodes(value); field('no_code').checked = !!value.no_code; field('uncertain').checked = !!value.uncertain; field('note').value = value.note || '';
     find('[data-source-selection-hint]').textContent = saved ? (locked() ? '已保存的片段，只读查看。' : '已保存的片段，可继续修改。') : '当前选中的片段';
@@ -343,8 +389,15 @@
     choices.hidden = false;
   }
   reading.addEventListener('click', event => {
+    if (performance.now() <= suppressMarkClickUntil || !window.getSelection()?.isCollapsed) return;
     const mark = event.target.closest('[data-source-annotations]');
-    if (mark && performance.now() > suppressMarkClickUntil && window.getSelection()?.isCollapsed) showOverlaps(mark);
+    if (mark) { showOverlaps(mark); return; }
+    const peerMark = event.target.closest('[data-source-peer-annotations]');
+    if (peerMark) {
+      const firstId = Number(peerMark.dataset.sourcePeerAnnotations.split(',')[0]);
+      const peer = (data.peer_annotations || []).find(item => item.id === firstId);
+      if (peer) openPeerAnnotation(peer);
+    }
   });
   reading.addEventListener('keydown', event => {
     const mark = event.target.closest('[data-source-annotations]');
@@ -425,6 +478,26 @@
     event.currentTarget.setAttribute('aria-label', collapsed ? '展开材料与片段' : '收起材料与片段');
   });
   renderCodes(); renderList(); renderHighlights(); refreshControls();
+  if (data.round?.collab_mode === 'sync' && data.round?.state === 'active') {
+    setInterval(async () => {
+      if (dirty || busy || conflicted || document.hidden) return;
+      try {
+        const result = await request(data.urls.annotations);
+        let changed = false;
+        if (Array.isArray(result.codes) && JSON.stringify(result.codes) !== JSON.stringify(data.codes)) {
+          data.codes = result.codes;
+          if (typeof result.book_revision === 'number') data.book.revision = result.book_revision;
+          renderCodes(selected || {});
+          changed = true;
+        }
+        if (Array.isArray(result.peer_annotations) && JSON.stringify(result.peer_annotations) !== JSON.stringify(data.peer_annotations || [])) {
+          data.peer_annotations = result.peer_annotations;
+          changed = true;
+        }
+        if (changed) { renderPeerList(); renderHighlights(); }
+      } catch (_) { /* Quietly retry on next poll. */ }
+    }, 6000);
+  }
   if (innerWidth <= 1100) find('[data-source-collapse]').click();
   const initialAnnotation = data.annotations.find(annotation => annotation.id === Number(data.selected_annotation_id));
   if (initialAnnotation) {

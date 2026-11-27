@@ -49,6 +49,30 @@ const roundSelectionTools = (() => {
 if (typeof module !== 'undefined' && module.exports) module.exports = roundSelectionTools;
 
 if (typeof document !== 'undefined') (() => {
+  const slidingSwitch = document.querySelector?.('[data-sliding-switch]');
+  if (slidingSwitch) {
+    const links = [...slidingSwitch.querySelectorAll('a')];
+    links.forEach(link => link.addEventListener('click', event => {
+      if (link.getAttribute('aria-current') === 'page' || event.metaKey || event.ctrlKey || event.shiftKey || event.button) return;
+      event.preventDefault();
+      links.forEach(item => item.removeAttribute('aria-current'));
+      link.setAttribute('aria-current', 'page');
+      slidingSwitch.dataset.active = link.dataset.switchKey || '';
+      setTimeout(() => location.assign(link.href), 240);
+    }));
+  }
+  const docForm = document.getElementById('document-round-arrangement');
+  if (docForm) {
+    const syncOption = docForm.querySelector('[data-sync-only-option]');
+    const syncCheckbox = docForm.querySelector('[name="share_annotations"]');
+    const syncToggle = () => {
+      const isSync = docForm.querySelector('[name="collab_mode"]:checked')?.value === 'sync';
+      if (syncOption) syncOption.dataset.syncDisabled = String(!isSync);
+      if (syncCheckbox) syncCheckbox.disabled = !isSync;
+    };
+    docForm.addEventListener('change', syncToggle);
+    syncToggle();
+  }
   const form = document.getElementById('round-arrangement');
   const indexElement = document.getElementById('round-unit-index');
   if (!form || !indexElement) return;
